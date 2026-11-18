@@ -1,10 +1,10 @@
-import { CARDS, PIECES, PLAYER_COLORS, PLAYER_NAMES, RULES, buildDeckList, type CardDef, type Die, type PieceKind } from './config';
+import { CARDS, CLASS_USERS, PIECES, PLAYER_COLORS, PLAYER_NAMES, RULES, buildDeckList, canClassBeUsedBy, type CardDef, type Die, type PieceKind } from './config';
 import {
   DIAGONALS, DIRECTIONS, KNIGHT_JUMPS, corners, hex, hexAdd, hexDistance, hexEq, hexScale, hexagonBoard, inBoard, neighbors,
   type Hex,
 } from './hex';
 import { rollDie, shuffle } from './rng';
-import type { Action, Card, GameEvent, GameState, Piece, Player, PlayerSetup, Target } from './types';
+import type { Action, Card, GameEvent, GameState, Piece, Player, PlayerSetup, Target, Unit } from './types';
 
 export const CENTER: Hex = hex(0, 0);
 
@@ -22,6 +22,10 @@ export function newGame(setups: PlayerSetup[], seed = Date.now()): { state: Game
     round: 1,
     nextId: 1,
     rngState: seed | 0,
+    active: null,
+    turnActed: false,
+    cardsUsed: 0,
+    mustDiscard: 0,
     flag: { pos: { ...RULES.flagStart }, carrier: null },
     winner: null,
     winReason: null,
@@ -89,8 +93,32 @@ function isOpenFor(s: GameState, h: Hex, owner: number): boolean {
   return !base || base.index === owner;
 }
 
+export const sameUnit = (a: Unit, b: Unit): boolean =>
+  a.kind === b.kind && (a.kind === 'base' || (b.kind === 'piece' && a.id === b.id));
+
+export const activePiece = (s: GameState): Piece | undefined =>
+  s.active?.kind === 'piece' ? pieceById(s, s.active.id) : undefined;
+
+/** Can this be (or become) the current player's single unit for this turn? */
+export function canBeUnit(s: GameState, unit: Unit): boolean {
+  if (s.winner !== null || s.mustDiscard > 0) return false;
+  if (s.active && sameUnit(s.active, unit)) return true;
+  if (s.turnActed) return false; // locked in
+  if (unit.kind === 'base') return currentPlayer(s).alive;
+  const p = pieceById(s, unit.id);
+  return !!p && p.owner === s.current && (p.movesLeft > 0 || p.attacksLeft > 0);
+}
+
+/** Units the current player could pick right now. */
+export function selectableUnits(s: GameState): Unit[] {
+  const out: Unit[] = [{ kind: 'base' }];
+  for (const p of s.pieces) if (p.owner === s.current) out.push({ kind: 'piece', id: p.id });
+  return out.filter((u) => canBeUnit(s, u));
+}
+
 export function legalMoves(s: GameState, piece: Piece): Hex[] {
   if (s.winner !== null || piece.owner !== s.current || piece.movesLeft <= 0) return [];
+  if (!canBeUnit(s, { kind: 'piece', id: piece.id })) return [];
   const rule = PIECES[piece.kind].move;
   const out: Hex[] = [];
   const add = (h: Hex) => {
@@ -148,12 +176,6 @@ export function movePath(from: Hex, to: Hex): Hex[] {
   return [to];
 }
 
-/** Board hexes an area card may be centred on. */
-function areaTargets(s: GameState, owner: number, def: CardDef): Hex[] {
-  const casters = s.pieces.filter((p) => p.owner === owner && (!def.castFrom || def.castFrom.includes(p.kind)));
-  if (!casters.length) return [];
-  return hexagonBoard(RULES.boardRadius).filter((h) => casters.some((c) => hexDistance(c.pos, h) <= (def.range ?? 0)));
-}
 
 /** Enemy pieces and bases within `range` of hex `from`, for attacker `owner`. */
 function enemiesNear(s: GameState, from: Hex[], range: number, owner: number): Target[] {
@@ -168,6 +190,7 @@ function enemiesNear(s: GameState, from: Hex[], range: number, owner: number): T
 
 export function legalAttacks(s: GameState, piece: Piece): Target[] {
   if (s.winner !== null || piece.owner !== s.current || piece.attacksLeft <= 0) return [];
+  if (!canBeUnit(s, { kind: 'piece', id: piece.id })) return [];
   return enemiesNear(s, [piece.pos], PIECES[piece.kind].range, piece.owner);
 }
 
@@ -177,34 +200,69 @@ export function summonHexes(s: GameState, owner: number): Hex[] {
   return [base, ...neighbors(base)].filter((h) => isOpenFor(s, h, owner));
 }
 
-export function cardTargets(s: GameState, owner: number, def: CardDef): Target[] {
-  const mine = s.pieces.filter((p) => p.owner === owner);
+/** Valid targets for `def` played by `actor` (the acting piece; undefined for conjurations). */
+export function cardTargets(s: GameState, owner: number, def: CardDef, actor?: Piece): Target[] {
+  if (def.targeting === 'summonHex') return summonHexes(s, owner).map((h) => ({ kind: 'hex', hex: h }));
+  if (!actor) return [];
+  const self: Target = { kind: 'piece', id: actor.id };
   switch (def.targeting) {
     case 'none':
       return [];
-    case 'summonHex':
-      return summonHexes(s, owner).map((h) => ({ kind: 'hex', hex: h }));
-    case 'friendlyPiece': {
-      if (def.id === 'recall') {
-        if (summonHexes(s, owner).length === 0) return [];
-      }
-      return mine.map((p) => ({ kind: 'piece', id: p.id }));
-    }
-    case 'friendlyPawn':
-      return mine.filter((p) => p.kind === 'pawn').map((p) => ({ kind: 'piece', id: p.id }));
+    case 'self':
+      if (def.id === 'recall' && summonHexes(s, owner).length === 0) return [];
+      return [self];
+    case 'selfOrAdjacentFriend':
+      return [self, ...s.pieces.filter((p) => p.owner === owner && hexDistance(p.pos, actor.pos) === 1).map((p): Target => ({ kind: 'piece', id: p.id }))];
+    case 'friendlyPawnInRange':
+      return s.pieces
+        .filter((p) => p.owner === owner && p.kind === 'pawn' && p.id !== actor.id && hexDistance(p.pos, actor.pos) <= (def.range ?? 1))
+        .map((p) => ({ kind: 'piece', id: p.id }));
     case 'enemyInRange':
-      return enemiesNear(s, mine.map((p) => p.pos), def.range ?? 1, owner);
+      return enemiesNear(s, [actor.pos], def.range ?? 1, owner);
+    case 'arrows':
+      return s.pieces
+        .filter((p) => p.owner !== owner && hexDistance(p.pos, actor.pos) <= (def.range ?? 1))
+        .map((p) => ({ kind: 'piece', id: p.id }));
     case 'areaHex':
-      return areaTargets(s, owner, def).map((h) => ({ kind: 'hex', hex: h }));
+      return hexagonBoard(RULES.boardRadius)
+        .filter((h) => hexDistance(h, actor.pos) <= (def.range ?? 0))
+        .map((h) => ({ kind: 'hex', hex: h }));
   }
 }
 
-export function canPlayCard(s: GameState, owner: number, card: Card): boolean {
-  if (s.winner !== null || owner !== s.current) return false;
+const CLASS_LABEL: Record<string, string> = { pawn: 'Pawn', knight: 'Knight', bishop: 'Bishop', rook: 'Rook', queen: 'Queen' };
+
+/** Who may play a card, in words (for tooltips). */
+export function cardUsersText(def: CardDef): string {
+  if (def.cls === 'conjuration') return 'Conjuration: played by your base';
+  if (def.cls === 'pawn') return 'Pawn card: any piece can use it';
+  return `${CLASS_LABEL[def.cls]} card: usable by ${CLASS_USERS[def.cls].map((k) => PIECES[k].name).join(', ')}`;
+}
+
+/** Why `card` can't be played right now, or null if it can. */
+export function cardBlockReason(s: GameState, owner: number, card: Card): string | null {
+  if (s.winner !== null || owner !== s.current) return 'Not your turn';
+  if (s.mustDiscard > 0) return `Discard ${s.mustDiscard} card(s) first`;
   const def = CARDS[card.id];
-  if (s.players[owner].energy < def.cost) return false;
-  if (def.id === 'fortify' && s.players[owner].baseHp >= RULES.baseHp) return false;
-  return def.targeting === 'none' || cardTargets(s, owner, def).length > 0;
+  const me = s.players[owner];
+  if (def.cls === 'conjuration') {
+    if (!canBeUnit(s, { kind: 'base' })) return 'Only your base plays conjurations, and this turn you chose a piece';
+    if (me.energy < def.cost) return `Needs ${def.cost} energy`;
+    if (!summonHexes(s, owner).length) return 'No empty hex on or next to your base';
+    return null;
+  }
+  const actor = activePiece(s);
+  if (!actor) return `${cardUsersText(def)}. Select a piece first`;
+  if (!canClassBeUsedBy(def.cls, actor.kind)) return `${cardUsersText(def)} — not a ${PIECES[actor.kind].name}`;
+  if (s.cardsUsed >= RULES.cardsPerPieceTurn) return `A piece may play ${RULES.cardsPerPieceTurn} card per turn`;
+  if (me.energy < def.cost) return `Needs ${def.cost} energy`;
+  if (def.id === 'fortify' && me.baseHp >= RULES.baseHp) return 'Your base is at full HP';
+  if (def.targeting !== 'none' && cardTargets(s, owner, def, actor).length === 0) return 'No valid target';
+  return null;
+}
+
+export function canPlayCard(s: GameState, owner: number, card: Card): boolean {
+  return cardBlockReason(s, owner, card) === null;
 }
 
 export const sameTarget = (a: Target, b: Target): boolean =>
@@ -218,17 +276,45 @@ export function legalActions(s: GameState): Action[] {
   if (s.winner !== null) return [];
   const me = s.current;
   const out: Action[] = [];
+  if (s.mustDiscard > 0) return s.players[me].hand.map((c) => ({ type: 'discard', cardUid: c.uid }));
   for (const card of s.players[me].hand) {
     if (!canPlayCard(s, me, card)) continue;
     const def = CARDS[card.id];
     if (def.targeting === 'none') out.push({ type: 'playCard', cardUid: card.uid });
-    else for (const t of cardTargets(s, me, def)) out.push({ type: 'playCard', cardUid: card.uid, target: t });
+    else if (def.targeting === 'arrows') {
+      for (const arrows of arrowSplits(s, cardTargets(s, me, def, activePiece(s)), def.amount ?? 1)) {
+        out.push({ type: 'playCard', cardUid: card.uid, arrows });
+      }
+    } else for (const t of cardTargets(s, me, def, activePiece(s))) out.push({ type: 'playCard', cardUid: card.uid, target: t });
   }
   for (const p of s.pieces.filter((x) => x.owner === me)) {
     for (const to of legalMoves(s, p)) out.push({ type: 'move', pieceId: p.id, to });
     for (const t of legalAttacks(s, p)) out.push({ type: 'attack', pieceId: p.id, target: t });
   }
   out.push({ type: 'endTurn' });
+  return out;
+}
+
+/**
+ * A handful of representative ways to split `n` arrows (the UI lets humans pick any split):
+ * all on one target, spread evenly, and "just enough to kill the weakest, rest on the next".
+ */
+export function arrowSplits(s: GameState, targets: Target[], n: number): number[][] {
+  const ids = targets.flatMap((t) => (t.kind === 'piece' ? [t.id] : []));
+  if (!ids.length) return [];
+  const out: number[][] = ids.map((id) => Array(n).fill(id));
+  if (ids.length > 1) out.push(Array.from({ length: n }, (_, i) => ids[i % ids.length]));
+  const byHp = [...ids].sort((a, b) => (pieceById(s, a)!.hp + pieceById(s, a)!.shield) - (pieceById(s, b)!.hp + pieceById(s, b)!.shield));
+  const avg = 4.5; // 1d8
+  const split: number[] = [];
+  for (const id of byHp) {
+    const p = pieceById(s, id)!;
+    const need = Math.min(n - split.length, Math.ceil((p.hp + p.shield) / avg));
+    for (let i = 0; i < need; i++) split.push(id);
+    if (split.length >= n) break;
+  }
+  while (split.length < n) split.push(byHp[0]);
+  out.push(split);
   return out;
 }
 
@@ -257,7 +343,6 @@ function roll(s: GameState, events: GameEvent[], label: string, dice: Die[], bon
 
 function drawCards(s: GameState, events: GameEvent[], who: Player, count: number) {
   let drawn = 0;
-  let burned = 0;
   for (let i = 0; i < count; i++) {
     if (who.deck.length === 0) {
       if (who.discard.length === 0) break;
@@ -265,17 +350,14 @@ function drawCards(s: GameState, events: GameEvent[], who: Player, count: number
       who.discard = [];
       log(s, events, `${who.name} reshuffles their discard pile into a new deck.`, who.index);
     }
-    const card = who.deck.pop()!;
-    if (who.hand.length >= RULES.handLimit) {
-      who.discard.push(card);
-      burned++;
-    } else {
-      who.hand.push(card);
-      drawn++;
-    }
+    who.hand.push(who.deck.pop()!);
+    drawn++;
   }
-  events.push({ type: 'draw', player: who.index, count: drawn, burned });
-  if (burned) log(s, events, `${who.name}'s hand is full: ${burned} card(s) burned.`, who.index);
+  events.push({ type: 'draw', player: who.index, count: drawn, burned: 0 });
+  if (who.index === s.current) {
+    s.mustDiscard = Math.max(0, who.hand.length - RULES.handLimit);
+    if (s.mustDiscard) log(s, events, `${who.name} has ${who.hand.length} cards and must discard ${s.mustDiscard}.`, who.index);
+  }
 }
 
 function declareWin(s: GameState, events: GameEvent[], player: number, reason: string) {
@@ -291,6 +373,10 @@ function startTurn(s: GameState, events: GameEvent[]) {
   me.turnsTaken++;
   events.push({ type: 'turnStart', player: me.index, round: s.round });
   log(s, events, `— Round ${s.round}: ${me.name}'s turn —`, me.index);
+  s.active = null;
+  s.turnActed = false;
+  s.cardsUsed = 0;
+  s.mustDiscard = 0;
   drawCards(s, events, me, me.turnsTaken === 1 ? RULES.openingHand : RULES.drawPerTurn);
   me.energy = Math.min(RULES.energyStart + (me.turnsTaken - 1) * RULES.energyPerTurn, RULES.energyMax);
   for (const p of s.pieces) {
@@ -309,11 +395,10 @@ function removePiece(s: GameState, events: GameEvent[], p: Piece) {
   }
 }
 
-/** Give the flag to `p` if it is lying on any hex of `path`. */
-function tryPickUp(s: GameState, events: GameEvent[], p: Piece, path: Hex[]) {
+/** Give the flag to `p` if it ended its move on the flag's hex. */
+function tryPickUp(s: GameState, events: GameEvent[], p: Piece) {
   if (s.flag.carrier !== null || !s.flag.pos) return;
-  const hit = path.some((h) => hexEq(h, s.flag.pos!));
-  if (!hit) return;
+  if (!hexEq(p.pos, s.flag.pos)) return;
   s.flag = { pos: null, carrier: p.id };
   log(s, events, `🚩 ${s.players[p.owner].name}'s ${PIECES[p.kind].name} grabs the flag!`, p.owner);
   checkFlagWin(s, events, p);
@@ -374,17 +459,18 @@ export function applyAction(s: GameState, action: Action): GameEvent[] {
   const events: GameEvent[] = [];
   assert(s.winner === null, 'Game is over');
   const me = currentPlayer(s);
+  assert(s.mustDiscard === 0 || action.type === 'discard', `Discard ${s.mustDiscard} card(s) first`);
 
   switch (action.type) {
     case 'move': {
       const p = pieceById(s, action.pieceId);
       assert(p && p.owner === me.index, 'Not your piece');
       assert(legalMoves(s, p).some((h) => hexEq(h, action.to)), 'Illegal move');
-      const path = movePath(p.pos, action.to);
+      lockUnit(s, { kind: 'piece', id: p.id });
       p.pos = action.to;
       p.movesLeft--;
       log(s, events, `${me.name} moves ${PIECES[p.kind].name} to (${action.to.q},${action.to.r}).`, me.index);
-      tryPickUp(s, events, p, RULES.flagPickupWhenPassing ? path : [action.to]);
+      tryPickUp(s, events, p);
       checkFlagWin(s, events, p);
       break;
     }
@@ -394,10 +480,10 @@ export function applyAction(s: GameState, action: Action): GameEvent[] {
       assert(legalAttacks(s, p).some((t) => sameTarget(t, action.target)), 'Illegal attack');
       const stats = PIECES[p.kind];
       log(s, events, `${me.name}'s ${stats.name} attacks ${targetName(s, action.target)}.`, me.index);
+      lockUnit(s, { kind: 'piece', id: p.id });
       const dmg = roll(s, events, `${stats.name} d${stats.die}`, [stats.die], p.bonusDamage, me.index);
       p.bonusDamage = 0;
       p.attacksLeft--;
-      p.movesLeft = 0;
       dealDamage(s, events, action.target, dmg);
       break;
     }
@@ -406,15 +492,29 @@ export function applyAction(s: GameState, action: Action): GameEvent[] {
       assert(card, 'Card not in hand');
       assert(canPlayCard(s, me.index, card), 'Cannot play that card now');
       const def = CARDS[card.id];
-      if (def.targeting !== 'none') {
-        assert(action.target, 'Card needs a target');
-        assert(cardTargets(s, me.index, def).some((t) => sameTarget(t, action.target!)), 'Illegal target');
+      const actor = def.cls === 'conjuration' ? undefined : activePiece(s);
+      let target = action.target;
+      if (def.targeting === 'self' && !target && actor) target = { kind: 'piece', id: actor.id };
+      if (def.targeting === 'arrows') {
+        const legal = cardTargets(s, me.index, def, actor).flatMap((t) => (t.kind === 'piece' ? [t.id] : []));
+        assert(action.arrows && action.arrows.length === def.amount, `Assign all ${def.amount} arrows`);
+        assert(action.arrows.every((id) => legal.includes(id)), 'Arrows must target enemy pieces in range');
+        assert(new Set(action.arrows).size <= (def.amount ?? 1), 'Too many targets');
+      } else if (def.targeting !== 'none') {
+        assert(target, 'Card needs a target');
+        assert(cardTargets(s, me.index, def, actor).some((t) => sameTarget(t, target!)), 'Illegal target');
+      }
+      if (def.cls === 'conjuration') lockUnit(s, { kind: 'base' });
+      else {
+        s.turnActed = true;
+        s.cardsUsed++;
       }
       me.energy -= def.cost;
       me.hand = me.hand.filter((c) => c !== card);
       me.discard.push(card);
-      log(s, events, `${me.name} plays ${def.name}.`, me.index);
-      resolveCard(s, events, me, def, action.target);
+      log(s, events, `${me.name}${actor ? `'s ${PIECES[actor.kind].name}` : "'s base"} plays ${def.name}.`, me.index);
+      if (def.targeting === 'arrows') resolveArrows(s, events, me, def, action.arrows!);
+      else resolveCard(s, events, me, def, target, actor);
       break;
     }
     case 'discard': {
@@ -422,7 +522,15 @@ export function applyAction(s: GameState, action: Action): GameEvent[] {
       assert(card, 'Card not in hand');
       me.hand = me.hand.filter((c) => c !== card);
       me.discard.push(card);
+      if (s.mustDiscard > 0) s.mustDiscard--;
       log(s, events, `${me.name} discards ${CARDS[card.id].name}.`, me.index);
+      break;
+    }
+    case 'selectUnit': {
+      assert(canBeUnit(s, action.unit), 'You cannot pick that unit now');
+      s.active = action.unit;
+      const p = action.unit.kind === 'piece' ? pieceById(s, action.unit.id) : undefined;
+      log(s, events, `${me.name} picks their ${p ? PIECES[p.kind].name : 'base'} for this turn.`, me.index);
       break;
     }
     case 'endTurn': {
@@ -434,6 +542,13 @@ export function applyAction(s: GameState, action: Action): GameEvent[] {
   // A player who blew up their own base (e.g. with Fireball) loses the rest of their turn.
   if (s.winner === null && !currentPlayer(s).alive) advanceTurn(s, events);
   return events;
+}
+
+/** Make `unit` this turn's unit (switching is allowed until it does something) and lock it in. */
+function lockUnit(s: GameState, unit: Unit) {
+  assert(canBeUnit(s, unit), 'Another unit already acted this turn');
+  s.active = unit;
+  s.turnActed = true;
 }
 
 function advanceTurn(s: GameState, events: GameEvent[]) {
@@ -454,7 +569,24 @@ export function areaVictims(s: GameState, center: Hex, radius: number): { pieces
   };
 }
 
-function resolveCard(s: GameState, events: GameEvent[], me: Player, def: CardDef, target?: Target) {
+function resolveArrows(s: GameState, events: GameEvent[], me: Player, def: CardDef, arrows: number[]) {
+  const names = arrows.map((id) => targetName(s, { kind: 'piece', id }));
+  const values = arrows.map(() => rollDie(s, def.dice!.die));
+  events.push({
+    type: 'roll', label: `${def.name}: ${names.map((n) => n.split(' ').slice(1).join(' ')).join(', ')}`,
+    dice: arrows.map(() => def.dice!.die), values, bonus: 0, total: values.reduce((a, b) => a + b, 0), player: me.index,
+  });
+  arrows.forEach((id, i) => {
+    if (!pieceById(s, id)) {
+      log(s, events, `  Arrow ${i + 1} (${values[i]}) flies past — its target already fell.`);
+      return;
+    }
+    log(s, events, `  Arrow ${i + 1} hits ${names[i]} for ${values[i]}.`);
+    dealDamage(s, events, { kind: 'piece', id }, values[i]);
+  });
+}
+
+function resolveCard(s: GameState, events: GameEvent[], me: Player, def: CardDef, target?: Target, _actor?: Piece) {
   const piece = target?.kind === 'piece' ? pieceById(s, target.id) : undefined;
   switch (def.id) {
     case 'summon_pawn': case 'summon_knight': case 'summon_bishop':
@@ -462,7 +594,7 @@ function resolveCard(s: GameState, events: GameEvent[], me: Player, def: CardDef
       assert(target?.kind === 'hex', 'Summon needs a hex');
       const np = spawnPiece(s, me.index, def.summons!, target.hex, RULES.summoningSickness);
       log(s, events, `  A ${PIECES[def.summons!].name} appears at (${target.hex.q},${target.hex.r}).`, me.index);
-      tryPickUp(s, events, np, [np.pos]);
+      tryPickUp(s, events, np);
       break;
     }
     case 'fireball': {

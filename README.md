@@ -1,7 +1,7 @@
 # Die Build Die
 
 A hex-board strategy game that mixes **chess pieces**, **a deck of cards**, and **dice**.
-2–6 players start in the corners of a radius-10 hex board and play capture the flag: grab the flag from the centre hex and carry it home, summoning chess pieces from their hand and rolling dice to fight.
+2–6 players start in the corners of a radius-10 hex board and play capture the flag: grab the flag from the centre hex and carry it home. Each turn you act with ONE unit — your base (conjure chess pieces) or a single piece (move, play one class card, attack) — and roll dice to fight.
 
 **▶ Play:** https://xenodorian.github.io/Die-Build-Die/
 **📜 Rules:** [RULES.md](RULES.md)

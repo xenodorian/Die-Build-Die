@@ -1,184 +1,213 @@
-import { CARDS, PIECES, RULES, type CardId } from './config';
-import { areaVictims, flagCarrier, flagHex, garrisonOf, legalActions, movePath, pieceById } from './engine';
-import { hexDistance, hexEq, type Hex } from './hex';
-import { nextRandom } from './rng';
-import type { Action, GameState, Piece, Target } from './types';
+import { CARDS, PIECES, RULES, canClassBeUsedBy, type PieceKind } from './config';
+import { applyAction, flagCarrier, flagHex, legalActions, selectableUnits, summonHexes } from './engine';
+import { DIAGONALS, DIRECTIONS, KNIGHT_JUMPS, hex, hexDistance, hexEq, inBoard, type Hex } from './hex';
+import type { Action, GameState, Unit } from './types';
 
 /**
- * A simple greedy capture-the-flag bot. It is meant for sanity-checking rules and as a sparring
- * partner, not as a strong opponent. It picks one action at a time; call it until it returns endTurn.
+ * Greedy capture-the-flag bot for the one-unit-per-turn rules.
+ *  1. If it must discard, it drops the card it can least use.
+ *  2. It picks its unit (base or one piece) by playing out each option on a copy of the game
+ *     (with re-seeded dice, so it can't peek at real rolls) and scoring the result.
+ *  3. With the unit chosen it repeatedly takes the single action that most improves the score.
+ * It is a sparring partner / rules sanity check, not a strong player.
  */
 export function chooseBotAction(s: GameState): Action {
-  const actions = legalActions(s);
-  const me = s.current;
+  if (s.mustDiscard > 0) return bestDiscard(s);
+  if (!s.active && !s.turnActed) {
+    const unit = chooseUnit(s);
+    return unit ? { type: 'selectUnit', unit } : { type: 'endTurn' };
+  }
+  return greedyStep(s, s.current, 7);
+}
+
+/** Turns a piece of `kind` needs to LAND on `to` from `from` on an empty board (BFS, cached per target). */
+const turnCache = new Map<string, Map<string, number>>();
+export function turnsTo(kind: PieceKind, from: Hex, to: Hex): number {
+  const key = `${kind}|${to.q},${to.r}`;
+  let dist = turnCache.get(key);
+  if (!dist) {
+    dist = new Map();
+    const rule = PIECES[kind].move;
+    const steps: Hex[] = [];
+    for (const d of DIRECTIONS) for (let k = 1; k <= rule.straight; k++) steps.push(hex(d.q * k, d.r * k));
+    for (const d of DIAGONALS) for (let k = 1; k <= rule.diagonal; k++) steps.push(hex(d.q * k, d.r * k));
+    if (rule.knightJump) steps.push(...KNIGHT_JUMPS);
+    dist.set(`${to.q},${to.r}`, 0);
+    let frontier = [to];
+    for (let t = 1; frontier.length; t++) {
+      const next: Hex[] = [];
+      for (const h of frontier) for (const st of steps) {
+        const n = hex(h.q - st.q, h.r - st.r);
+        const nk = `${n.q},${n.r}`;
+        if (!inBoard(n, RULES.boardRadius) || dist.has(nk)) continue;
+        dist.set(nk, t);
+        next.push(n);
+      }
+      frontier = next;
+    }
+    turnCache.set(key, dist);
+  }
+  return dist.get(`${from.q},${from.r}`) ?? 20;
+}
+const WORTH: Record<PieceKind, number> = { pawn: 6, knight: 12, bishop: 15, rook: 18, queen: 24, king: 30 };
+
+/** Score a position from player `me`'s point of view. */
+export function evaluate(s: GameState, me: number): number {
+  if (s.winner !== null) return s.winner === me ? 1e6 : -1e6;
+  const meP = s.players[me];
+  if (!meP.alive) return -1e6;
+  const enemies = s.players.filter((p) => p.alive && p.index !== me);
+  const share = 1 / Math.max(1, enemies.length);
+  let v = 0;
+
+  // Flag race
+  const carrier = flagCarrier(s);
+  if (carrier) {
+    const home = s.players[carrier.owner].base;
+    const d = turnsTo(carrier.kind, carrier.pos, home) * 1.5;
+    const val = 400 + (20 - d) * 35;
+    v += carrier.owner === me ? val : -val;
+    if (carrier.owner === me) {
+      // carriers want escorts and fear nearby enemies
+      const threats = s.pieces.filter((p) => p.owner !== me && hexDistance(p.pos, carrier.pos) <= 3).length;
+      v -= threats * 25;
+      // Clear the way home: our own pieces on the base hex block the carrier.
+      const blocker = s.pieces.find((p) => p.owner === me && p.id !== carrier.id && hexEq(p.pos, home));
+      // (Constant while we carry, so it never discourages the carrier from approaching.)
+      if (blocker) v -= 150;
+      v -= s.pieces.filter((p) => p.owner === me && p.id !== carrier.id && hexDistance(p.pos, home) === 1).length * 40;
+    } else {
+      // chase the enemy carrier
+      const mine = s.pieces.filter((p) => p.owner === me);
+      if (mine.length) v -= Math.min(...mine.map((p) => hexDistance(p.pos, carrier.pos) / 2)) * 20;
+    }
+  } else {
+    const f = flagHex(s)!;
+    const turns = (owner: number) => {
+      const ps = s.pieces.filter((p) => p.owner === owner);
+      return ps.length ? Math.min(...ps.map((p) => turnsTo(p.kind, p.pos, f))) : 15;
+    };
+    const mine = turns(me);
+    // Nudge the whole army forward a little.
+    for (const p of s.pieces) if (p.owner === me) v -= Math.min(turnsTo(p.kind, p.pos, f), 8) * 2;
+    const theirs = Math.min(...enemies.map((e) => turns(e.index)), 15);
+    v += (theirs - mine) * 30 - mine * 10;
+  }
+
+  // Material
+  for (const p of s.pieces) {
+    const w = WORTH[p.kind] + p.hp * 2 + p.shield + p.bonusDamage;
+    v += p.owner === me ? w : -w * share;
+  }
+  // Bases
+  v += meP.baseHp * 5;
+  const garrison = s.pieces.find((p) => p.owner === me && hexEq(p.pos, meP.base));
+  if (garrison) v += 15;
+  for (const e of enemies) v -= e.baseHp * 2 * share;
+  v += (s.players.length - 1 - enemies.length) * 150;
+  // Keep a summoning hex free so the base stays useful.
+  if (!summonHexes(s, me).length) v -= 30;
+  // Cards in hand are options
+  v += meP.hand.length * 3;
+  return v;
+}
+
+function clone(s: GameState, salt: number): GameState {
+  const c = structuredClone({ ...s, log: [] as string[] });
+  c.rngState = (s.rngState ^ 0x5bd1e995) + salt * 7919; // fresh dice: no peeking at real rolls
+  return c;
+}
+
+/** Actions available to the chosen unit (the engine still allows switching, the bot does not). */
+function unitActions(s: GameState): Action[] {
+  const u = s.active;
+  return legalActions(s).filter((a) => {
+    if (a.type === 'endTurn' || a.type === 'discard' || a.type === 'selectUnit') return false;
+    if (a.type === 'playCard') {
+      const card = s.players[s.current].hand.find((c) => c.uid === a.cardUid)!;
+      const def = CARDS[card.id];
+      if ((def.cls === 'conjuration') !== (u?.kind === 'base')) return false;
+      // Only consider Fireball centred on something worth burning.
+      if (def.targeting === 'areaHex' && a.target?.kind === 'hex') {
+        const h = a.target.hex;
+        return s.pieces.some((p) => p.owner !== s.current && hexEq(p.pos, h)) || s.players.some((p) => p.alive && p.index !== s.current && hexEq(p.base, h));
+      }
+      return true;
+    }
+    return u?.kind === 'piece' && a.pieceId === u.id;
+  });
+}
+
+/** Take the action that most improves the evaluation, or end the turn. */
+function greedyStep(s: GameState, me: number, salt: number): Action {
+  if (s.mustDiscard > 0) return bestDiscard(s);
+  const base = evaluate(s, me);
   let best: Action = { type: 'endTurn' };
-  let bestScore = 0; // only act if score > 0
-  for (const a of actions) {
-    const base = scoreAction(s, a, me);
-    if (base <= 0) continue;
-    const score = base + nextRandom({ rngState: hashAction(s, a) }) * 0.5;
-    if (score > bestScore) {
-      bestScore = score;
+  let bestV = base + 0.5;
+  let i = 0;
+  for (const a of unitActions(s)) {
+    let v = 0;
+    const samples = a.type === 'attack' || a.type === 'playCard' ? 2 : 1;
+    for (let k = 0; k < samples; k++) {
+      const c = clone(s, salt * 131 + i++ * 17 + k);
+      try {
+        applyAction(c, a);
+      } catch {
+        v = -Infinity;
+        break;
+      }
+      v += evaluate(c, me) / samples;
+    }
+    if (v > bestV) {
+      bestV = v;
       best = a;
     }
   }
   return best;
 }
 
-// Deterministic jitter without consuming the game's RNG stream.
-function hashAction(s: GameState, a: Action): number {
-  return (s.nextId * 7919 + s.round * 104729 + JSON.stringify(a).length * 31 + s.log.length * 17) | 0;
-}
-
-function targetHp(s: GameState, t: Target): number {
-  if (t.kind === 'piece') return pieceById(s, t.id)?.hp ?? 0;
-  if (t.kind === 'base') {
-    const pl = s.players[t.owner];
-    return garrisonOf(s, pl)?.hp ?? pl.baseHp;
-  }
-  return 0;
-}
-
-const isEnemyCarrier = (s: GameState, id: number, me: number) => {
-  const c = flagCarrier(s);
-  return !!c && c.id === id && c.owner !== me;
-};
-
-/** Where a piece wants to go. */
-function goalFor(s: GameState, p: Piece): Hex {
-  const carrier = flagCarrier(s);
-  if (carrier?.id === p.id) return s.players[p.owner].base;
-  const flag = flagHex(s);
-  if (flag && (!carrier || carrier.owner !== p.owner)) return flag; // chase the flag or its carrier
-  // A friend carries it: intercept the enemy nearest to our carrier.
-  const enemies = s.pieces.filter((x) => x.owner !== p.owner);
-  if (!enemies.length || !carrier) return flag ?? p.pos;
-  enemies.sort((a, b) => hexDistance(a.pos, carrier.pos) - hexDistance(b.pos, carrier.pos));
-  return enemies[0].pos;
-}
-
-function scoreAction(s: GameState, a: Action, me: number): number {
-  switch (a.type) {
-    case 'endTurn':
-    case 'discard':
-      return 0;
-    case 'attack': {
-      const p = pieceById(s, a.pieceId)!;
-      const avg = (PIECES[p.kind].die + 1) / 2 + p.bonusDamage;
-      const hp = targetHp(s, a.target);
-      let score = 50 + avg * 2;
-      if (avg >= hp) score += 30; // likely kill
-      if (a.target.kind === 'piece' && isEnemyCarrier(s, a.target.id, me)) score += 80;
-      if (a.target.kind === 'base') score += 10;
-      return score;
+function chooseUnit(s: GameState): Unit | null {
+  const me = s.current;
+  let best: Unit | null = null;
+  let bestV = -Infinity;
+  selectableUnits(s).forEach((u, i) => {
+    const c = clone(s, 1000 + i);
+    applyAction(c, { type: 'selectUnit', unit: u });
+    for (let step = 0; step < 12 && c.winner === null && c.current === me; step++) {
+      const a = greedyStep(c, me, i * 31 + step);
+      if (a.type === 'endTurn') break;
+      applyAction(c, a);
     }
-    case 'move': {
-      const p = pieceById(s, a.pieceId)!;
-      const goal = goalFor(s, p);
-      const before = hexDistance(p.pos, goal);
-      const after = hexDistance(a.to, goal);
-      const carrying = flagCarrier(s)?.id === p.id;
-      const flag = s.flag.pos;
-      if (flag && movePath(p.pos, a.to).some((h) => hexEq(h, flag))) return 300; // grab the flag
-      if (carrying && hexEq(a.to, s.players[me].base)) return 1000; // win
-      // Keep one piece home as a garrison (it soaks damage aimed at the base),
-      // but step aside when our own flag carrier is coming home.
-      if (!carrying && hexEq(p.pos, s.players[me].base)) {
-        const c = flagCarrier(s);
-        return c && c.owner === me && hexDistance(c.pos, p.pos) <= 4 ? 60 : 0;
-      }
-      if (after >= before) return 0;
-      return 10 + (before - after) * (carrying ? 8 : 3);
+    const v = evaluate(c, me);
+    if (v > bestV) {
+      bestV = v;
+      best = u;
     }
-    case 'playCard': {
-      const card = s.players[me].hand.find((c) => c.uid === a.cardUid)!;
-      const def = CARDS[card.id];
-      const t = a.target;
-      if (def.category === 'piece') {
-        if (t?.kind !== 'hex') return 0;
-        const flag = flagHex(s) ?? t.hex;
-        return 40 + def.cost * 4 - hexDistance(t.hex, flag) * 0.5;
-      }
-      const piece = t?.kind === 'piece' ? pieceById(s, t.id) : undefined;
-      const carrying = !!piece && flagCarrier(s)?.id === piece.id;
-      switch (def.id) {
-        case 'fireball': {
-          if (t?.kind !== 'hex') return 0;
-          const { pieces, bases } = areaVictims(s, t.hex, def.radius!);
-          const dmg = 28;
-          let value = 0;
-          for (const v of pieces) {
-            const worth = Math.min(v.hp + v.shield, dmg) + (v.hp + v.shield <= dmg ? v.maxHp : 0);
-            const carrierBonus = flagCarrier(s)?.id === v.id ? 60 : 0;
-            value += v.owner === me ? -(worth + carrierBonus) * 1.5 : worth + carrierBonus;
-          }
-          for (const pl of bases) {
-            if (garrisonOf(s, pl)) continue;
-            value += pl.index === me ? -500 : pl.baseHp <= dmg ? 120 : 20;
-          }
-          return value > 30 ? 40 + value / 2 : 0;
-        }
-        case 'firebolt': {
-          const hp = t ? targetHp(s, t) : 99;
-          let sc = 35 + (hp <= 5 ? 25 : 0);
-          if (t?.kind === 'piece' && isEnemyCarrier(s, t.id, me)) sc += 60;
-          return sc;
-        }
-        case 'heal':
-          return piece && piece.maxHp - piece.hp >= 3 ? 30 + (carrying ? 20 : 0) : 0;
-        case 'fortify':
-          return s.players[me].baseHp <= 14 ? 30 : 0;
-        case 'shield':
-          return piece && (carrying || hasAdjacentEnemy(s, piece.pos, me)) ? 28 + piece.maxHp : 0;
-        case 'sharpen':
-        case 'frenzy':
-          return piece && piece.attacksLeft > 0 && hasAdjacentEnemy(s, piece.pos, me) ? 32 : 0;
-        case 'haste':
-          return piece && piece.movesLeft === 0 && piece.attacksLeft > 0 && hexDistance(piece.pos, goalFor(s, piece)) > 1
-            ? 15 + (carrying ? 40 : piece.maxHp / 4)
-            : 0;
-        case 'promote':
-          return 25;
-        case 'rally':
-          return s.players[me].hand.length <= 4 ? 20 : 0;
-        case 'recall':
-          return piece && piece.hp <= 2 && !carrying ? 12 : 0;
-        default:
-          return 0;
-      }
-    }
-  }
+  });
+  return best;
 }
 
-function hasAdjacentEnemy(s: GameState, pos: Hex, me: number): boolean {
-  return (
-    s.pieces.some((p) => p.owner !== me && hexDistance(p.pos, pos) === 1) ||
-    s.players.some((pl) => pl.alive && pl.index !== me && hexDistance(pl.base, pos) === 1)
-  );
-}
-
-/** Before ending the turn, dump a card that can't be played if the hand is full (so draws aren't burned). */
-export function botDiscard(s: GameState): Action | null {
+/** Discard the card this player can least use. */
+export function bestDiscard(s: GameState): Action {
   const me = s.players[s.current];
-  if (me.hand.length < RULES.handLimit) return null;
-  const pieceCount = s.pieces.filter((p) => p.owner === me.index).length;
-  const junk = [...me.hand].sort((a, b) => junkScore(b.id, pieceCount) - junkScore(a.id, pieceCount))[0];
-  return junk ? { type: 'discard', cardUid: junk.uid } : null;
-}
-function junkScore(id: CardId, pieceCount: number): number {
-  const def = CARDS[id];
-  if (def.category === 'piece') return 0;
-  if (def.targeting !== 'none' && def.targeting !== 'summonHex' && pieceCount === 0) return 10;
-  return 5 - def.cost;
+  const kinds = new Set(s.pieces.filter((p) => p.owner === me.index).map((p) => p.kind));
+  const keep = (id: keyof typeof CARDS): number => {
+    const def = CARDS[id];
+    if (def.cls === 'conjuration') return 10 + def.cost * 2;
+    const usable = [...kinds].some((k) => canClassBeUsedBy(def.cls, k));
+    return (usable ? 12 : 0) + def.cost;
+  };
+  const card = [...me.hand].sort((a, b) => keep(a.id) - keep(b.id))[0];
+  return { type: 'discard', cardUid: card.uid };
 }
 
 /** Play out the current player's whole turn with the bot. */
-export function runBotTurn(s: GameState, apply: (a: Action) => void, maxActions = 200): void {
+export function runBotTurn(s: GameState, apply: (a: Action) => void, maxActions = 60): void {
   const who = s.current;
-  for (let i = 0; i < maxActions && s.winner === null && s.current === who; i++) {
-    let a = chooseBotAction(s);
-    if (a.type === 'endTurn') a = botDiscard(s) ?? a;
-    apply(a);
+  for (let i = 0; i < maxActions && s.winner === null && s.current === who; i++) apply(chooseBotAction(s));
+  if (s.winner === null && s.current === who) {
+    while (s.mustDiscard > 0) apply(bestDiscard(s));
+    apply({ type: 'endTurn' });
   }
-  if (s.winner === null && s.current === who) apply({ type: 'endTurn' });
 }
+

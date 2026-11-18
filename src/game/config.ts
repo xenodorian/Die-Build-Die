@@ -40,31 +40,50 @@ export const PIECES: Record<PieceKind, PieceStats> = {
   king:   { kind: 'king',   name: 'King',   glyph: '♚', hp: 20, die: 20, range: 1, move: { straight: 1, diagonal: 1, knightJump: false } },
 };
 
-export type CardCategory = 'piece' | 'offense' | 'defense' | 'special';
+export type CardCategory = 'conjuration' | 'offense' | 'defense' | 'special';
 
-/** What a card must be pointed at when played. */
+/**
+ * Card class: who may play it.
+ *  conjuration – only your BASE (when the base is your unit this turn) — summons pieces
+ *  pawn/knight/bishop/rook/queen – played by your selected piece; see CLASS_USERS.
+ */
+export type CardClass = 'conjuration' | 'pawn' | 'knight' | 'bishop' | 'rook' | 'queen';
+
+/** Which piece kinds may play each class of ability card. Kings can use everything. */
+export const CLASS_USERS: Record<Exclude<CardClass, 'conjuration'>, PieceKind[]> = {
+  pawn:   ['pawn', 'knight', 'bishop', 'rook', 'queen', 'king'], // Heal: any piece
+  knight: ['knight', 'king'],
+  bishop: ['bishop', 'queen', 'king'],
+  rook:   ['rook', 'queen', 'king'],
+  queen:  ['queen', 'king'],
+};
+
+/** What a card must be pointed at when played. Ranges are measured from the acting piece. */
 export type Targeting =
-  | 'none'
-  | 'summonHex'      // an empty hex on/next to your base
-  | 'friendlyPiece'
-  | 'friendlyPawn'
-  | 'enemyInRange'   // enemy piece or base within `range` of one of your pieces
-  | 'areaHex';       // any hex within `range` of one of your pieces listed in `castFrom`
+  | 'none'                 // no target (Fortify, Rally)
+  | 'self'                 // the acting piece (Sharpen, Frenzy, Haste, Recall)
+  | 'summonHex'            // an empty hex on/next to your base
+  | 'selfOrAdjacentFriend' // the acting piece or a friendly piece next to it (Heal, Shield)
+  | 'friendlyPawnInRange'  // a friendly Pawn within `range` of the acting piece (Promote)
+  | 'enemyInRange'         // enemy piece or base within `range` of the acting piece (Fire Bolt)
+  | 'areaHex'              // any hex within `range` of the acting piece (Fireball)
+  | 'arrows';              // `amount` arrows split among enemy PIECES within `range` (Cordon of Arrows)
 
 export type CardId =
   | 'summon_pawn' | 'summon_knight' | 'summon_bishop' | 'summon_rook' | 'summon_queen' | 'summon_king'
   | 'firebolt' | 'fireball' | 'sharpen' | 'frenzy'
   | 'shield' | 'heal' | 'fortify'
-  | 'haste' | 'promote' | 'rally' | 'recall';
+  | 'haste' | 'promote' | 'rally' | 'recall' | 'cordon';
 
 export interface CardDef {
   id: CardId;
   name: string;
+  cls: CardClass;
   category: CardCategory;
   cost: number;
   targeting: Targeting;
   text: string;
-  /** Piece cards only. */
+  /** Conjuration cards only. */
   summons?: PieceKind;
   /** Generic numeric parameters used by the effect. */
   amount?: number;
@@ -72,38 +91,45 @@ export interface CardDef {
   range?: number;
   /** Area cards: blast radius around the target hex. */
   radius?: number;
-  /** Area cards: which of your piece kinds the target must be within `range` of. */
-  castFrom?: PieceKind[];
   /** Copies of this card in each player's deck. */
   copies: number;
 }
 
 export const CARDS: Record<CardId, CardDef> = {
-  // ---- Piece cards (chess pieces: rising HP and damage die) ----
-  summon_pawn:   { id: 'summon_pawn',   name: 'Pawn',   category: 'piece', cost: 1, targeting: 'summonHex', summons: 'pawn',   copies: 5, text: 'Summon a Pawn. 4 HP, d4. Moves 1 hex.' },
-  summon_knight: { id: 'summon_knight', name: 'Knight', category: 'piece', cost: 2, targeting: 'summonHex', summons: 'knight', copies: 4, text: 'Summon a Knight. 6 HP, d6. Jumps 3 hexes off-line (over anything).' },
-  summon_bishop: { id: 'summon_bishop', name: 'Bishop', category: 'piece', cost: 3, targeting: 'summonHex', summons: 'bishop', copies: 3, text: 'Summon a Bishop. 8 HP, d8. Slides up to 2 diagonal steps.' },
-  summon_rook:   { id: 'summon_rook',   name: 'Rook',   category: 'piece', cost: 4, targeting: 'summonHex', summons: 'rook',   copies: 3, text: 'Summon a Rook. 10 HP, d10. Slides up to 3 hexes in a line.' },
-  summon_queen:  { id: 'summon_queen',  name: 'Queen',  category: 'piece', cost: 5, targeting: 'summonHex', summons: 'queen',  copies: 2, text: 'Summon a Queen. 12 HP, d12. Rook or Bishop moves.' },
-  summon_king:   { id: 'summon_king',   name: 'King',   category: 'piece', cost: 6, targeting: 'summonHex', summons: 'king',   copies: 1, text: 'Summon a King. 20 HP, d20. Moves 1 step, straight or diagonal.' },
+  // ---- Conjuration cards (played by your base) ----
+  summon_pawn:   { id: 'summon_pawn',   name: 'Summon Pawn',   cls: 'conjuration', category: 'conjuration', cost: 1, targeting: 'summonHex', summons: 'pawn',   copies: 5, text: 'Summon a Pawn. 4 HP, d4. Moves 1 hex.' },
+  summon_knight: { id: 'summon_knight', name: 'Summon Knight', cls: 'conjuration', category: 'conjuration', cost: 2, targeting: 'summonHex', summons: 'knight', copies: 4, text: 'Summon a Knight. 6 HP, d6. Jumps 3 hexes off-line (over anything).' },
+  summon_bishop: { id: 'summon_bishop', name: 'Summon Bishop', cls: 'conjuration', category: 'conjuration', cost: 3, targeting: 'summonHex', summons: 'bishop', copies: 3, text: 'Summon a Bishop. 8 HP, d8. Slides up to 2 diagonal steps.' },
+  summon_rook:   { id: 'summon_rook',   name: 'Summon Rook',   cls: 'conjuration', category: 'conjuration', cost: 4, targeting: 'summonHex', summons: 'rook',   copies: 3, text: 'Summon a Rook. 10 HP, d10. Slides up to 3 hexes in a line.' },
+  summon_queen:  { id: 'summon_queen',  name: 'Summon Queen',  cls: 'conjuration', category: 'conjuration', cost: 5, targeting: 'summonHex', summons: 'queen',  copies: 2, text: 'Summon a Queen. 12 HP, d12. Rook or Bishop moves.' },
+  summon_king:   { id: 'summon_king',   name: 'Summon King',   cls: 'conjuration', category: 'conjuration', cost: 6, targeting: 'summonHex', summons: 'king',   copies: 1, text: 'Summon a King. 20 HP, d20. Moves 1 step, straight or diagonal.' },
 
-  // ---- Offensive ----
-  firebolt: { id: 'firebolt', name: 'Fire Bolt', category: 'offense', cost: 2, targeting: 'enemyInRange', range: 3, dice: { count: 2, die: 4 }, copies: 3, text: 'Deal 2d4 to an enemy piece or base within 3 hexes of one of your pieces.' },
-  fireball: { id: 'fireball', name: 'Fireball', category: 'offense', cost: 7, targeting: 'areaHex', range: 10, radius: 4, castFrom: ['queen', 'bishop'], dice: { count: 8, die: 6 }, copies: 1, text: 'Pick a hex within 10 of your Queen or Bishop. Roll 8d6: EVERY piece (yours too) and base within 4 hexes takes it.' },
-  sharpen:  { id: 'sharpen',  name: 'Sharpen',  category: 'offense', cost: 1, targeting: 'friendlyPiece', amount: 2, copies: 3, text: "Your piece's next attack deals +2 damage." },
-  frenzy:   { id: 'frenzy',   name: 'Frenzy',   category: 'offense', cost: 2, targeting: 'friendlyPiece', amount: 1, copies: 2, text: 'Your piece may attack one extra time this turn.' },
+  // ---- Pawn card (any piece) ----
+  heal:     { id: 'heal',     name: 'Heal',      cls: 'pawn',   category: 'defense', cost: 1, targeting: 'selfOrAdjacentFriend', dice: { count: 1, die: 6 }, copies: 4, text: 'Heal this piece or an adjacent friendly piece 1d6 HP (up to max).' },
 
-  // ---- Defensive ----
-  shield:  { id: 'shield',  name: 'Shield',  category: 'defense', cost: 1, targeting: 'friendlyPiece', amount: 4, copies: 3, text: 'Give your piece a 4-point shield that absorbs damage.' },
-  heal:    { id: 'heal',    name: 'Heal',    category: 'defense', cost: 1, targeting: 'friendlyPiece', dice: { count: 1, die: 6 }, copies: 3, text: 'Restore 1d6 HP to your piece (up to its max).' },
-  fortify: { id: 'fortify', name: 'Fortify', category: 'defense', cost: 2, targeting: 'none', amount: 6, copies: 2, text: 'Repair your base for 6 HP (up to its max).' },
+  // ---- Knight cards (Knight, King) ----
+  sharpen:  { id: 'sharpen',  name: 'Sharpen',   cls: 'knight', category: 'offense', cost: 1, targeting: 'self', amount: 2, copies: 3, text: 'This piece\'s next attack deals +2 damage.' },
+  frenzy:   { id: 'frenzy',   name: 'Frenzy',    cls: 'knight', category: 'offense', cost: 2, targeting: 'self', amount: 1, copies: 2, text: 'This piece may attack one extra time this turn.' },
+  cordon:   { id: 'cordon',   name: 'Cordon of Arrows', cls: 'knight', category: 'offense', cost: 4, targeting: 'arrows', amount: 4, range: 4, dice: { count: 1, die: 8 }, copies: 2, text: 'Shoot 4 arrows, split as you like among enemy pieces within 4 hexes. Each arrow deals 1d8.' },
+  haste:    { id: 'haste',    name: 'Haste',     cls: 'knight', category: 'special', cost: 1, targeting: 'self', amount: 1, copies: 3, text: 'This piece may move one extra time this turn.' },
 
-  // ---- Special ----
-  haste:   { id: 'haste',   name: 'Haste',   category: 'special', cost: 1, targeting: 'friendlyPiece', amount: 1, copies: 3, text: 'Your piece may move one extra time this turn.' },
-  promote: { id: 'promote', name: 'Promote', category: 'special', cost: 2, targeting: 'friendlyPawn', copies: 2, text: 'Turn one of your Pawns into a full-HP Knight. It keeps any unused move/attack.' },
-  rally:   { id: 'rally',   name: 'Rally',   category: 'special', cost: 1, targeting: 'none', amount: 2, copies: 2, text: 'Draw 2 cards.' },
-  recall:  { id: 'recall',  name: 'Recall',  category: 'special', cost: 1, targeting: 'friendlyPiece', amount: 2, copies: 1, text: 'Teleport your piece back next to your base and heal it 2.' },
+  // ---- Bishop cards (Bishop, Queen, King) ----
+  firebolt: { id: 'firebolt', name: 'Fire Bolt', cls: 'bishop', category: 'offense', cost: 2, targeting: 'enemyInRange', range: 3, dice: { count: 2, die: 4 }, copies: 3, text: 'Deal 2d4 to an enemy piece or base within 3 hexes of this piece.' },
+  fireball: { id: 'fireball', name: 'Fireball',  cls: 'bishop', category: 'offense', cost: 7, targeting: 'areaHex', range: 10, radius: 4, dice: { count: 8, die: 6 }, copies: 1, text: 'Pick a hex within 10 of this piece. Roll 8d6: EVERY piece (yours too) and base within 4 hexes takes it.' },
+  recall:   { id: 'recall',   name: 'Recall',    cls: 'bishop', category: 'special', cost: 1, targeting: 'self', amount: 2, copies: 2, text: 'Teleport this piece next to your base and heal it 2. A carried flag is dropped.' },
+
+  // ---- Rook cards (Rook, Queen, King) ----
+  shield:   { id: 'shield',   name: 'Shield',    cls: 'rook',   category: 'defense', cost: 1, targeting: 'selfOrAdjacentFriend', amount: 4, copies: 3, text: 'This piece or an adjacent friendly piece gains a 4-point damage shield.' },
+  fortify:  { id: 'fortify',  name: 'Fortify',   cls: 'rook',   category: 'defense', cost: 2, targeting: 'none', amount: 6, copies: 2, text: 'Repair your base for 6 HP (up to its max).' },
+  rally:    { id: 'rally',    name: 'Rally',     cls: 'rook',   category: 'special', cost: 1, targeting: 'none', amount: 2, copies: 2, text: 'Draw 2 cards.' },
+
+  // ---- Queen card (Queen, King) ----
+  promote:  { id: 'promote',  name: 'Promote',   cls: 'queen',  category: 'special', cost: 2, targeting: 'friendlyPawnInRange', range: 3, copies: 2, text: 'Turn a friendly Pawn within 3 hexes into a full-HP Knight.' },
 };
+
+export function canClassBeUsedBy(cls: CardClass, kind: PieceKind): boolean {
+  return cls !== 'conjuration' && CLASS_USERS[cls].includes(kind);
+}
 
 export const RULES = {
   /** Board is a hexagon of this radius; corners and centre are this far apart. */
@@ -125,19 +151,23 @@ export const RULES = {
 
   openingHand: 7,
   drawPerTurn: 1,
-  /** Draws beyond this hand size are discarded ("burned"). */
-  handLimit: 10,
+  /** Hand limit: whenever your hand goes above this, you must discard down to it before doing anything else. */
+  handLimit: 7,
 
   /** Energy pays for cards. You refill to min(start + (turn-1) * perTurn, max) each turn. Unspent energy is lost. */
   energyStart: 2,
   energyPerTurn: 1,
   energyMax: 7,
 
-  /** Freshly summoned pieces cannot move or attack until your next turn. */
+  /** Freshly summoned pieces cannot be your unit until your next turn. */
   summoningSickness: true,
-  /** A piece may move, then attack. Attacking ends its movement. */
+  /**
+   * One unit per turn: you pick your BASE (play any number of conjuration cards you can afford)
+   * or ONE piece, which may move, play cards and attack, in any order, up to these limits.
+   */
   movesPerTurn: 1,
   attacksPerTurn: 1,
+  cardsPerPieceTurn: 1,
 
   /**
    * Garrison: while one of its owner's pieces stands on a base, damage aimed at the base hits
@@ -147,13 +177,11 @@ export const RULES = {
   garrisonAbsorbsBaseDamage: true,
 
   /**
-   * Capture the flag: the flag starts on the centre hex. A piece that stops on it or slides
-   * through it picks it up. Bring the carrier onto your own base hex to win. If the carrier dies,
-   * the flag drops on its hex. Recall makes the carrier drop the flag where it stood.
+   * Capture the flag: the flag starts on the centre hex. A piece that ENDS a move on it picks it up
+   * (passing over it does nothing). Bring the carrier onto your own base hex to win. If the carrier
+   * dies, the flag drops on its hex. Recall makes the carrier drop the flag where it stood.
    */
   flagStart: { q: 0, r: 0 },
-  /** Sliding pieces (Rook/Bishop/Queen) grab the flag when they pass over it, not only when they stop on it. */
-  flagPickupWhenPassing: true,
   /** Also win by being the last player with a base standing. */
   lastBaseStandingWins: true,
 };

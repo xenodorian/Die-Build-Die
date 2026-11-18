@@ -8,7 +8,7 @@
 import { applyAction, newGame } from '../src/game/engine';
 import { runBotTurn } from '../src/game/bot';
 import { RULES } from '../src/game/config';
-import { legalActions } from '../src/game/engine';
+import { legalActions, selectableUnits } from '../src/game/engine';
 import { nextRandom } from '../src/game/rng';
 import type { GameState } from '../src/game/types';
 
@@ -18,7 +18,13 @@ const rngBox = { rngState: 12345 };
 function randomTurn(state: GameState) {
   const who = state.current;
   for (let i = 0; i < 500 && state.winner === null && state.current === who; i++) {
+    if (!state.active && !state.turnActed && state.mustDiscard === 0) {
+      const units = selectableUnits(state);
+      applyAction(state, { type: 'selectUnit', unit: units[Math.floor(nextRandom(rngBox) * units.length)] });
+      continue;
+    }
     const acts = legalActions(state).filter((a) => a.type !== 'endTurn');
+    if (state.mustDiscard > 0) { applyAction(state, acts[0]); continue; }
     if (!acts.length || nextRandom(rngBox) < 0.25) applyAction(state, { type: 'endTurn' });
     else applyAction(state, acts[Math.floor(nextRandom(rngBox) * acts.length)]);
   }
@@ -28,7 +34,7 @@ function randomTurn(state: GameState) {
 const games = Number(args[0] ?? 200);
 const onlyPlayers = args[1] ? [Number(args[1])] : [2, 3, 4, 5, 6];
 const MAX_ROUNDS_RANDOM = 2000;
-const MAX_ROUNDS_GREEDY = 300;
+const MAX_ROUNDS_GREEDY = Number(process.env.MAX_ROUNDS ?? 300);
 const MAX_ROUNDS = randomMode ? MAX_ROUNDS_RANDOM : MAX_ROUNDS_GREEDY;
 let failures = 0;
 

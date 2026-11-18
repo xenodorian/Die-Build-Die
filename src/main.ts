@@ -1,8 +1,8 @@
 import './ui/style.css';
 import { CARDS, PIECES, PLAYER_COLORS, PLAYER_NAMES, RULES, type CardCategory } from './game/config';
 import {
-  CENTER, applyAction, areaVictims, baseAt, canPlayCard, cardTargets, currentPlayer, flagCarrier, flagHex, legalAttacks, legalMoves,
-  newGame, pieceAt,
+  CENTER, activePiece, applyAction, areaVictims, baseAt, canBeUnit, canPlayCard, cardBlockReason, cardTargets, cardUsersText, currentPlayer,
+  flagCarrier, flagHex, legalAttacks, legalMoves, newGame, pieceAt,
   pieceById, sameTarget, targetName,
 } from './game/engine';
 import { chooseBotAction } from './game/bot';
@@ -20,12 +20,14 @@ interface Ui {
   state: GameState | null;
   selectedPiece: number | null;
   pendingCard: number | null;
+  /** Cordon of Arrows: enemy piece id per assigned arrow. */
+  arrows: number[];
   busy: boolean;
   hideHands: boolean;
   revealed: boolean; // current human has acknowledged the hand-off screen
   fastDice: boolean;
 }
-const ui: Ui = { state: null, selectedPiece: null, pendingCard: null, busy: false, hideHands: true, revealed: true, fastDice: false };
+const ui: Ui = { state: null, selectedPiece: null, pendingCard: null, arrows: [], busy: false, hideHands: true, revealed: true, fastDice: false };
 
 // ------------------------------------------------------------------ setup screen
 
@@ -110,9 +112,10 @@ function hexPoints(h: Hex, size = S) {
 }
 const humansCount = () => ui.state!.players.filter((p) => !p.isBot && p.alive).length;
 const needsHandoff = () => ui.hideHands && !currentPlayer(ui.state!).isBot && humansCount() > 1;
-const CATEGORY_LABEL: Record<CardCategory, string> = { piece: 'Piece', offense: 'Offense', defense: 'Defense', special: 'Special' };
+const CATEGORY_LABEL: Record<CardCategory, string> = { conjuration: 'Conjuration', offense: 'Offense', defense: 'Defense', special: 'Special' };
+const CLASS_BADGE: Record<string, string> = { conjuration: '🏰 Base', pawn: '♟ Pawn', knight: '♞ Knight', bishop: '♝ Bishop', rook: '♜ Rook', queen: '♛ Queen' };
 const CATEGORY_ICON: Record<string, string> = {
-  firebolt: '🔥', fireball: '☄️', sharpen: '🗡️', frenzy: '⚔️', shield: '🛡️', heal: '✚', fortify: '🏰', haste: '💨', promote: '⬆️', rally: '🎴', recall: '↩️',
+  firebolt: '🔥', fireball: '☄️', cordon: '🏹', sharpen: '🗡️', frenzy: '⚔️', shield: '🛡️', heal: '✚', fortify: '🏰', haste: '💨', promote: '⬆️', rally: '🎴', recall: '↩️',
 };
 
 // ------------------------------------------------------------------ highlights
@@ -124,12 +127,13 @@ function highlights(): HL {
   if (s.winner !== null || ui.busy || currentPlayer(s).isBot) return hl;
   if (ui.pendingCard !== null) {
     const card = currentPlayer(s).hand.find((c) => c.uid === ui.pendingCard);
-    if (card) hl.cardTargets = cardTargets(s, s.current, CARDS[card.id]);
+    if (card) hl.cardTargets = cardTargets(s, s.current, CARDS[card.id], activePiece(s));
     return hl;
   }
-  if (ui.selectedPiece !== null) {
-    const p = pieceById(s, ui.selectedPiece);
-    if (p) {
+  const ap = activePiece(s);
+  if (ap) {
+    const p = ap;
+    {
       hl.moves = legalMoves(s, p);
       hl.attacks = legalAttacks(s, p);
     }
@@ -194,6 +198,7 @@ function renderBoard(hl: HL): string {
     }
     const frac = Math.max(0, p.baseHp / RULES.baseHp);
     overlays += `<g class="base-g" style="--pc:${p.color}">
+      ${p.index === s.current && s.active?.kind === 'base' ? `<polygon class="base-active" points="${hexPoints(p.base, S + 2)}"/>` : ''}
       <text class="base-icon" x="${x}" y="${y - 3}">🏰</text>
       <rect x="${x - 14}" y="${y + 10}" width="28" height="4" rx="2" class="hpbg"/>
       <rect x="${x - 14}" y="${y + 10}" width="${28 * frac}" height="4" rx="2" fill="${p.color}"/>
@@ -209,17 +214,20 @@ function renderBoard(hl: HL): string {
   for (const p of s.pieces) {
     const { x, y } = px(p.pos);
     const owner = s.players[p.owner];
-    const sel = p.id === ui.selectedPiece;
-    const ready = p.owner === s.current && !owner.isBot && (p.movesLeft > 0 || p.attacksLeft > 0) && s.winner === null;
+    const sel = s.active?.kind === 'piece' && s.active.id === p.id;
+    const ready = p.owner === s.current && !owner.isBot && canBeUnit(s, { kind: 'piece', id: p.id }) && !sel;
+    const benched = p.owner === s.current && !owner.isBot && s.turnActed && !sel;
+    const arrowsHere = ui.arrows.filter((id) => id === p.id).length;
     const frac = Math.max(0, p.hp / p.maxHp);
     const big = p.kind === 'king' || p.kind === 'queen';
-    overlays += `<g class="piece ${sel ? 'sel' : ''} ${ready ? 'ready' : ''}" data-piece="${p.id}">
+    overlays += `<g class="piece ${sel ? 'sel' : ''} ${ready ? 'ready' : ''} ${benched ? 'benched' : ''}" data-piece="${p.id}">
       <circle cx="${x}" cy="${y}" r="${big ? 15 : 13.5}" fill="${owner.color}" class="disc"/>
       ${p.shield ? `<circle cx="${x}" cy="${y}" r="${big ? 18 : 16.5}" class="shield"/>` : ''}
       <text class="glyph" x="${x}" y="${y + 7}">${PIECES[p.kind].glyph}</text>
       <rect x="${x - 12}" y="${y + 13}" width="24" height="3.5" rx="1.7" class="hpbg"/>
       <rect x="${x - 12}" y="${y + 13}" width="${24 * frac}" height="3.5" rx="1.7" class="hp ${frac <= 0.34 ? 'low' : ''}"/>
       ${p.bonusDamage ? `<text class="badge" x="${x + 12}" y="${y - 9}">+${p.bonusDamage}</text>` : ''}
+      ${arrowsHere ? `<circle cx="${x - 12}" cy="${y - 11}" r="7" class="arrow-badge"/><text class="arrow-count" x="${x - 12}" y="${y - 8}">${arrowsHere}</text>` : ''}
       ${s.flag.carrier === p.id ? `<circle cx="${x}" cy="${y}" r="${big ? 19 : 17.5}" class="carrier-ring"/><text class="carrier-flag" x="${x + 13}" y="${y - 7}">🚩</text>` : ''}
     </g>`;
   }
@@ -240,18 +248,22 @@ function renderBoard(hl: HL): string {
 
 // ------------------------------------------------------------------ panels
 
-function renderCard(card: Card, playable: boolean, pending: boolean, discardable: boolean) {
+function renderCard(card: Card, playable: boolean, pending: boolean, discardable: boolean, forcedDiscard: boolean) {
+  const s = ui.state!;
   const d = CARDS[card.id];
   const icon = d.summons ? PIECES[d.summons].glyph : CATEGORY_ICON[d.id] ?? '✦';
   const stats = d.summons ? `<div class="stats"><span>❤ ${PIECES[d.summons].hp}</span><span>🎲 d${PIECES[d.summons].die}</span></div>` : '';
-  return `<button class="card cat-${d.category} ${playable ? 'playable' : 'dim'} ${pending ? 'pending' : ''}" data-card="${card.uid}" title="${escapeHtml(d.text)}">
+  const reason = playable ? null : cardBlockReason(s, s.current, card);
+  const tip = `${d.name} — ${cardUsersText(d)}.\n${d.text}${reason && !forcedDiscard ? `\n\n✖ ${reason}` : ''}${forcedDiscard ? '\n\nClick to discard this card.' : ''}`;
+  return `<button class="card cat-${d.category} cls-${d.cls} ${playable || forcedDiscard ? 'playable' : 'dim'} ${pending ? 'pending' : ''} ${forcedDiscard ? 'to-discard' : ''}" data-card="${card.uid}" title="${escapeHtml(tip)}">
     <span class="cost">${d.cost}</span>
-    ${discardable ? `<span class="discard" data-discard="${card.uid}" title="Discard this card">✕</span>` : ''}
-    <span class="cat">${CATEGORY_LABEL[d.category]}</span>
+    ${discardable && !forcedDiscard ? `<span class="discard" data-discard="${card.uid}" title="Discard this card">✕</span>` : ''}
+    <span class="cls">${CLASS_BADGE[d.cls]}</span>
     <span class="icon">${icon}</span>
     <span class="name">${d.name}</span>
     ${stats}
     <span class="text">${d.text}</span>
+    <span class="cat">${CATEGORY_LABEL[d.category]}</span>
   </button>`;
 }
 
@@ -263,7 +275,36 @@ function flagStatus(): string {
     return `🚩 <b style="color:${o.color}">${escapeHtml(o.name)}</b>'s ${PIECES[c.kind].name} carries the flag. ${hexDistance(c.pos, o.base)} hexes from home.`;
   }
   const f = flagHex(s);
-  return f && hexEq(f, CENTER) ? '🚩 The flag waits on the centre hex. Grab it and bring it to your base!' : `🚩 The flag lies on the ground at (${f?.q},${f?.r}). Anyone can grab it.`;
+  if (!f) return '🚩 The flag is missing.';
+  return hexEq(f, CENTER) ? '🚩 The flag waits on the centre hex. Grab it and bring it to your base!' : `🚩 The flag lies on the ground at (${f?.q},${f?.r}). Anyone can grab it.`;
+}
+
+/** The "this turn's unit" panel. */
+function unitPanel(): string {
+  const s = ui.state!;
+  const me = currentPlayer(s);
+  if (me.isBot) return '<div class="hint">Bot is playing…</div>';
+  if (s.mustDiscard > 0) return `<div class="hint strong warn">✋ You have ${me.hand.length} cards — click ${s.mustDiscard === 1 ? 'a card' : `${s.mustDiscard} cards`} in your hand to discard (limit ${RULES.handLimit}).</div>`;
+  const baseBtn = canBeUnit(s, { kind: 'base' }) && s.active?.kind !== 'base'
+    ? `<button id="usebase" class="btn">🏰 Use my base (conjure pieces)</button>` : '';
+  const lock = s.turnActed ? '<span class="locked">🔒 locked in for this turn</span>' : '<span class="muted">You can still switch.</span>';
+  if (!s.active) {
+    return `<div class="hint strong"><b>Pick ONE unit for this turn:</b> your base (play conjuration cards) or one piece (move, play 1 card, attack — any order).</div>
+      <div class="hint">Click a glowing piece, or:</div>${baseBtn}`;
+  }
+  if (s.active.kind === 'base') {
+    return `<div class="selinfo" style="--pc:${me.color}"><div class="big">🏰 Base</div>
+      <div>Play conjuration cards to summon pieces next to it (as many as your energy allows).</div><div>${lock}</div></div>`;
+  }
+  const sel = activePiece(s);
+  if (!sel) return `<div class="hint">Your unit fell this turn. End your turn.</div>`;
+  const st = PIECES[sel.kind];
+  return `<div class="selinfo" style="--pc:${me.color}">
+      <div class="big">${st.glyph} ${st.name}${s.flag.carrier === sel.id ? ' 🚩' : ''}</div>
+      <div>❤ ${sel.hp}/${sel.maxHp}${sel.shield ? ` · 🛡 ${sel.shield}` : ''} · 🎲 d${st.die}${sel.bonusDamage ? ` +${sel.bonusDamage}` : ''}</div>
+      <div>Moves ${sel.movesLeft} · Attacks ${sel.attacksLeft} · Cards ${Math.max(0, RULES.cardsPerPieceTurn - s.cardsUsed)}</div>
+      <div>${lock}</div>
+    </div>${s.turnActed ? '' : baseBtn}`;
 }
 
 function renderSidebar() {
@@ -277,18 +318,14 @@ function renderSidebar() {
     </div>`;
   }).join('');
 
-  let info = '<div class="hint">Click one of your pieces to see its moves (●) and attacks (red). Click a card to play it.</div>';
-  const sel = ui.selectedPiece !== null ? pieceById(s, ui.selectedPiece) : undefined;
+  let info = unitPanel();
   if (ui.pendingCard !== null) {
     const card = currentPlayer(s).hand.find((c) => c.uid === ui.pendingCard);
-    if (card) info = `<div class="hint strong">Playing <b>${CARDS[card.id].name}</b>: click a highlighted target. <button id="cancel" class="link">Cancel</button></div>`;
-  } else if (sel) {
-    const st = PIECES[sel.kind];
-    info = `<div class="selinfo" style="--pc:${s.players[sel.owner].color}">
-      <div class="big">${st.glyph} ${st.name}</div>
-      <div>❤ ${sel.hp}/${sel.maxHp}${sel.shield ? ` · 🛡 ${sel.shield}` : ''} · 🎲 d${st.die}${sel.bonusDamage ? ` +${sel.bonusDamage}` : ''}</div>
-      <div>Moves left ${sel.movesLeft} · Attacks left ${sel.attacksLeft}</div>
-    </div>`;
+    if (card && CARDS[card.id].targeting === 'arrows') {
+      const n = CARDS[card.id].amount ?? 4;
+      info = `<div class="hint strong">🏹 <b>Cordon of Arrows</b>: click enemy pieces in range to assign arrows (<b>${ui.arrows.length}/${n}</b>). The same target can take several.
+        <div class="row-btns"><button id="fire" class="btn primary" ${ui.arrows.length === n ? '' : 'disabled'}>Fire!</button> <button id="resetarrows" class="btn ghost">Reset</button> <button id="cancel" class="link">Cancel</button></div></div>`;
+    } else if (card) info = `<div class="hint strong">Playing <b>${CARDS[card.id].name}</b>: click a highlighted target. <button id="cancel" class="link">Cancel</button></div>`;
   }
   const logLines = s.log.slice(-80).map((l) => `<div class="${l.startsWith('—') ? 'turn' : l.startsWith('  ') ? 'sub' : ''}">${escapeHtml(l)}</div>`).join('');
   return `<aside class="side">
@@ -305,7 +342,7 @@ function renderGame() {
   const hl = highlights();
   const showHand = !me.isBot && ui.revealed;
   const hand = showHand
-    ? me.hand.map((c) => renderCard(c, !ui.busy && canPlayCard(s, s.current, c), c.uid === ui.pendingCard, !ui.busy && s.winner === null)).join('') || '<div class="empty">No cards in hand</div>'
+    ? me.hand.map((c) => renderCard(c, !ui.busy && canPlayCard(s, s.current, c), c.uid === ui.pendingCard, !ui.busy && s.winner === null, s.mustDiscard > 0)).join('') || '<div class="empty">No cards in hand</div>'
     : `<div class="empty">${me.isBot ? `${escapeHtml(me.name)} (bot) is thinking…` : 'Hand hidden'}</div>`;
   const energyPips = Array.from({ length: RULES.energyMax }, (_, i) => `<span class="pip ${i < me.energy ? 'on' : ''}"></span>`).join('');
 
@@ -318,13 +355,13 @@ function renderGame() {
       <div class="spacer"></div>
       <a class="btn ghost" href="${RULES_URL}" target="_blank" rel="noopener">Rules</a>
       <button class="btn ghost" id="newgame">New game</button>
-      <button class="btn primary" id="endturn" ${ui.busy || me.isBot || s.winner !== null ? 'disabled' : ''}>End turn ⏎</button>
+      <button class="btn primary" id="endturn" ${ui.busy || me.isBot || s.winner !== null || s.mustDiscard > 0 ? 'disabled' : ''}>End turn ⏎</button>
     </header>
     <main class="main">
       <div class="board-wrap">${renderBoard(hl)}</div>
       ${renderSidebar()}
     </main>
-    <footer class="hand">${hand}</footer>
+    <footer class="hand ${s.mustDiscard > 0 && showHand ? 'discarding' : ''}">${s.mustDiscard > 0 && showHand ? `<div class="discard-banner">Hand limit ${RULES.handLimit}: choose ${s.mustDiscard} to discard</div>` : ''}${hand}</footer>
     <div class="dice-overlay" id="dice"></div>
     ${!ui.revealed && s.winner === null ? `<div class="modal"><div class="modal-card" style="--pc:${me.color}">
       <div class="swatch big"></div><h2>${escapeHtml(me.name)}'s turn</h2><p>Pass the device to ${escapeHtml(me.name)}.</p>
@@ -361,7 +398,17 @@ function bindGame() {
   });
   app.querySelector('#cancel')?.addEventListener('click', () => {
     ui.pendingCard = null;
+    ui.arrows = [];
     renderGame();
+  });
+  app.querySelector('#usebase')?.addEventListener('click', () => void doAction({ type: 'selectUnit', unit: { kind: 'base' } }));
+  app.querySelector('#resetarrows')?.addEventListener('click', () => {
+    ui.arrows = [];
+    renderGame();
+  });
+  app.querySelector('#fire')?.addEventListener('click', () => {
+    if (ui.pendingCard === null) return;
+    void doAction({ type: 'playCard', cardUid: ui.pendingCard, arrows: [...ui.arrows] });
   });
   app.querySelectorAll<HTMLElement>('[data-card]').forEach((el) =>
     el.addEventListener('click', () => onCardClick(Number(el.dataset.card))),
@@ -387,18 +434,25 @@ function onCardClick(uid: number) {
   const s = ui.state!;
   if (ui.busy || currentPlayer(s).isBot || s.winner !== null) return;
   const card = currentPlayer(s).hand.find((c) => c.uid === uid);
-  if (!card || !canPlayCard(s, s.current, card)) return;
+  if (!card) return;
+  if (s.mustDiscard > 0) {
+    void doAction({ type: 'discard', cardUid: uid });
+    return;
+  }
+  if (!canPlayCard(s, s.current, card)) return;
   if (ui.pendingCard === uid) {
     ui.pendingCard = null;
+    ui.arrows = [];
     renderGame();
     return;
   }
-  if (CARDS[card.id].targeting === 'none') {
+  const t = CARDS[card.id].targeting;
+  if (t === 'none' || t === 'self') {
     void doAction({ type: 'playCard', cardUid: uid });
     return;
   }
   ui.pendingCard = uid;
-  ui.selectedPiece = null;
+  ui.arrows = [];
   renderGame();
 }
 
@@ -423,7 +477,7 @@ function previewArea(h: Hex) {
 
 function onHexClick(h: Hex) {
   const s = ui.state!;
-  if (ui.busy || currentPlayer(s).isBot || s.winner !== null) return;
+  if (ui.busy || currentPlayer(s).isBot || s.winner !== null || s.mustDiscard > 0) return;
   const hl = highlights();
   const piece = pieceAt(s, h);
   const base = baseAt(s, h);
@@ -433,7 +487,14 @@ function onHexClick(h: Hex) {
   targetsHere.push({ kind: 'hex', hex: h });
 
   if (ui.pendingCard !== null) {
+    const card = currentPlayer(s).hand.find((c) => c.uid === ui.pendingCard);
+    const def = card ? CARDS[card.id] : undefined;
     const t = targetsHere.find((t) => hl.cardTargets.some((c) => sameTarget(c, t)));
+    if (def?.targeting === 'arrows') {
+      if (t && t.kind === 'piece' && ui.arrows.length < (def.amount ?? 4)) ui.arrows.push(t.id);
+      renderGame();
+      return;
+    }
     if (t) void doAction({ type: 'playCard', cardUid: ui.pendingCard, target: t });
     else {
       ui.pendingCard = null;
@@ -441,18 +502,27 @@ function onHexClick(h: Hex) {
     }
     return;
   }
-  if (ui.selectedPiece !== null) {
+  const ap = activePiece(s);
+  if (ap) {
     const atk = targetsHere.find((t) => hl.attacks.some((a) => sameTarget(a, t)));
     if (atk) {
-      void doAction({ type: 'attack', pieceId: ui.selectedPiece, target: atk });
+      void doAction({ type: 'attack', pieceId: ap.id, target: atk });
       return;
     }
     if (hl.moves.some((m) => hexEq(m, h))) {
-      void doAction({ type: 'move', pieceId: ui.selectedPiece, to: h });
+      void doAction({ type: 'move', pieceId: ap.id, to: h });
       return;
     }
   }
-  ui.selectedPiece = piece && piece.owner === s.current ? (ui.selectedPiece === piece.id ? null : piece.id) : null;
+  // Pick a unit: one of your pieces, or your base hex when nothing of yours stands on it.
+  if (piece && piece.owner === s.current && canBeUnit(s, { kind: 'piece', id: piece.id }) && !(s.active?.kind === 'piece' && s.active.id === piece.id)) {
+    void doAction({ type: 'selectUnit', unit: { kind: 'piece', id: piece.id } });
+    return;
+  }
+  if (!piece && base && base.index === s.current && canBeUnit(s, { kind: 'base' }) && s.active?.kind !== 'base') {
+    void doAction({ type: 'selectUnit', unit: { kind: 'base' } });
+    return;
+  }
   renderGame();
 }
 
@@ -460,9 +530,9 @@ document.addEventListener('keydown', (e) => {
   if (!ui.state) return;
   if (e.key === 'Escape') {
     ui.pendingCard = null;
-    ui.selectedPiece = null;
+    ui.arrows = [];
     renderGame();
-  } else if (e.key === 'Enter' && !ui.busy && !currentPlayer(ui.state).isBot && ui.revealed && ui.state.winner === null) {
+  } else if (e.key === 'Enter' && !ui.busy && !currentPlayer(ui.state).isBot && ui.revealed && ui.state.winner === null && ui.state.mustDiscard === 0) {
     void doAction({ type: 'endTurn' });
   }
 });
@@ -489,10 +559,8 @@ async function doAction(action: Action) {
     console.warn(err);
     return;
   }
-  // Keep the piece selected after a move so you can attack right away.
-  if (action.type !== 'move') ui.selectedPiece = null;
-  if (ui.selectedPiece !== null && !pieceById(s, ui.selectedPiece)) ui.selectedPiece = null;
   ui.pendingCard = null;
+  ui.arrows = [];
   ui.busy = true;
   renderGame();
   await playEvents(events, actorWasBot);

@@ -161,3 +161,26 @@ a { color: var(--gold); }
   .side .panel { flex: 1; overflow: auto; }
   .top { flex-wrap: wrap; gap: 8px; }
 }
+
+/* ---------- one-unit turns, card classes, arrows, forced discard ---------- */
+.card.cat-conjuration { --cc: var(--piece); }
+.card .cls { font-size: 10px; font-weight: 800; color: var(--cc); letter-spacing: .3px; text-align: right; }
+.card .cat { font-size: 8.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); text-align: right; margin-top: auto; }
+.card .text { flex: 0 1 auto; }
+.card.to-discard { box-shadow: 0 0 0 2px #ff6b6b, 0 6px 16px rgba(0,0,0,.4); }
+.card.to-discard:hover { transform: translateY(-10px); box-shadow: 0 0 0 3px #ff6b6b, 0 12px 24px rgba(0,0,0,.5); }
+.hand { position: relative; }
+.hand.discarding { background: linear-gradient(rgba(160,40,40,.15), rgba(0,0,0,.5)); }
+.discard-banner { position: absolute; top: -26px; left: 16px; background: #a33; color: #fff; font-weight: 800; font-size: 13px; padding: 4px 12px; border-radius: 8px 8px 0 0; }
+.piece.benched { opacity: .45; }
+.piece.sel .disc { stroke: var(--gold); stroke-width: 3.5; filter: drop-shadow(0 0 6px var(--gold)); }
+.piece.ready .disc { animation: readyglow 1.4s ease-in-out infinite; }
+@keyframes readyglow { 50% { stroke: var(--gold); } }
+.arrow-badge { fill: #ffb347; stroke: #1b1b1b; stroke-width: 1; }
+.arrow-count { font-size: 9px; font-weight: 900; text-anchor: middle; fill: #1b1b1b; }
+.base-active { fill: none; stroke: var(--gold); stroke-width: 3; filter: drop-shadow(0 0 6px var(--gold)); pointer-events: none; }
+.hint.warn { color: #ffb3b3; }
+.locked { color: var(--gold); font-weight: 700; font-size: 13px; }
+.muted { color: var(--muted); font-size: 13px; }
+.row-btns { margin-top: 8px; display: flex; gap: 8px; align-items: center; }
+.info .btn { margin-top: 8px; width: 100%; }

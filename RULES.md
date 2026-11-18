@@ -1,78 +1,97 @@
-# Die Build Die — Rules (v0.2 prototype)
+# Die Build Die — Rules (v0.3 prototype)
 
 Chess pieces, a deck of cards and a fistful of dice on a hexagonal board.
 Every number below lives in [`src/game/config.ts`](src/game/config.ts) — change it there and the game, bots and tests follow.
 
-> **Rules marked 🟡 are prototype defaults** that were filled in to make the game playable. They are up for discussion.
+> **Rules marked 🟡 are prototype defaults** filled in to make the game playable. They are up for discussion.
 
 ## Board & setup
 - The board is a **hexagon of radius 10** (331 hexes). The **centre hex** is exactly **10 hexes** from each of the **6 corners**. The **🚩 flag** starts on the centre hex.
-- **2–6 players.** Each player starts in a corner with their **base** 🏰 on the corner hex and **one Pawn** standing on the base.
+- **2–6 players.** Each player starts in a corner with their **base** 🏰 (20 HP) on the corner hex and **one Pawn** standing on it.
 - 🟡 Corners used: 2 players → opposite corners; 3 → every other corner; 4 → two opposite pairs; 5 → five corners; 6 → all.
-- 🟡 Bases have **20 HP**.
 
-## Turn order
-On your turn:
+## Your turn
 1. **Draw.** On your **first turn you draw 7 cards**; every later turn you **draw 1**.
-   - 🟡 Hand limit **10**: cards drawn past that are discarded ("burned"). You may **discard any card from your hand at any time** on your turn (the ✕ on a card) to make room.
+   - **Hand limit 7.** Whenever your hand goes above 7 (your draw, or Rally), you must **choose a card to discard** before doing anything else.
+   - 🟡 You may also discard any card at any time on your turn (the ✕ on a card).
    - 🟡 When your deck is empty, your discard pile is shuffled into a new deck.
-2. **Energy.** You get energy to pay for cards: **2 on your first turn, +1 each turn, up to 7**. Unspent energy is lost. Card costs run 1–7; **Fireball is the only 7-cost card**.
-3. **Act, in any order:**
-   - Play any number of cards you can afford.
-   - Each of your pieces may **move once, then attack once**. 🟡 Attacking ends that piece's movement.
-4. Press **End turn** (or Enter).
+2. **Energy.** You get **2 energy on your first turn, +1 each turn, up to 7**. Unspent energy is lost. Card costs run 1–7; **Fireball is the only 7**.
+3. **Pick ONE unit** for the whole turn — your **base** or **one piece**:
+   - **Base:** play **conjuration cards** to summon pieces on or next to your base — 🟡 as many as your energy pays for.
+   - **Piece:** it may **move once, play one card, and attack once, in any order** (e.g. attack, then move away).
+   - Your other units do nothing this turn.
+   - 🟡 You can switch your pick freely until the unit **does something**; then it is locked in.
+4. **End turn.**
 
 ## Pieces
-Damage is rolled on the piece's die. Attacks always hit; all pieces attack **adjacent** hexes (range 1) only. *(Pieces, movement and the move-then-attack rule are confirmed.)*
+Damage is rolled on the piece's die. Attacks always hit and reach **adjacent** hexes (range 1).
 
-| Piece | HP | Damage | Movement | Card cost 🟡 |
+| Piece | HP | Damage | Movement | Conjuration cost |
 |---|---|---|---|---|
 | ♟ Pawn | 4 | d4 | 1 hex in any of the 6 directions | 1 |
-| ♞ Knight | 6 | d6 | 🟡 **Jump** to any of the 12 hexes 3 away that are not in a straight line (Gliński hex-chess knight); jumps over anything | 2 |
-| ♝ Bishop | 8 | d8 | 🟡 Slides up to **2 diagonal steps** (hex diagonals, between two neighbours) | 3 |
-| ♜ Rook | 10 | d10 | 🟡 Slides up to **3 hexes** in a straight line | 4 |
-| ♛ Queen | 12 | d12 | 🟡 Rook **or** Bishop movement | 5 |
-| ♚ King | 20 | d20 | 🟡 1 step straight or 1 diagonal step | 6 |
+| ♞ Knight | 6 | d6 | Jumps to any of the 12 hexes 3 away that aren't in a straight line; jumps over anything | 2 |
+| ♝ Bishop | 8 | d8 | Slides up to 2 diagonal steps | 3 |
+| ♜ Rook | 10 | d10 | Slides up to 3 hexes in a line | 4 |
+| ♛ Queen | 12 | d12 | Rook or Bishop movement | 5 |
+| ♚ King | 20 | d20 | 1 step straight or diagonal | 6 |
 
-- Sliding pieces are blocked by any piece or base in the way. Nobody can stop on an occupied hex.
-- You can stand on your **own** base but never enter an enemy base hex.
-- 🟡 **Summoning:** piece cards put the piece on your base hex, or on an empty hex next to it. 🟡 New pieces can't move or attack until your next turn (summoning sickness).
-- When a piece reaches 0 HP it is removed.
+- Sliding pieces are blocked by anything in their path. Nobody can stop on an occupied hex or an enemy base.
+- New pieces can't be picked as your unit until your next turn (you used the base this turn anyway).
+- A piece at 0 HP is removed.
 
-## Ability cards
-| Card | Type | Cost | Copies | Effect |
-|---|---|---|---|---|
-| 🔥 Fire Bolt | Offense | 2 | 3 | Deal 2d4 to one enemy piece or base within 3 hexes of one of your pieces |
-| 🗡️ Sharpen | Offense | 1 | 3 | Your piece's next attack deals +2 damage |
-| ⚔️ Frenzy | Offense | 2 | 2 | Your piece may attack one extra time this turn |
-| ☄️ **Fireball** | Offense | **7** | **1** | Requires one of your **Queens or Bishops**. Pick any hex within **10** of one of them. Roll **8d6** once: **every** piece within **4 hexes** of that hex — **yours included** — and every base there takes that much damage |
-| 🛡️ Shield | Defense | 1 | 3 | Your piece gains a 4-point shield that absorbs damage (until used up) |
-| ✚ Heal | Defense | 1 | 3 | Heal your piece 1d6 (up to its max) |
-| 🏰 Fortify | Defense | 2 | 2 | Repair your base 6 HP (up to 20) |
-| 💨 Haste | Special | 1 | 3 | Your piece may move one extra time this turn |
-| ⬆️ Promote | Special | 2 | 2 | Turn your Pawn into a full-HP Knight (keeps any unused move/attack, and the flag) |
-| 🎴 Rally | Special | 1 | 2 | Draw 2 cards |
-| ↩️ Recall | Special | 1 | 1 | Teleport your piece next to your base and heal it 2. 🟡 A flag carrier drops the flag where it stood |
+## Cards
+Each player has their own **47-card deck**: 18 conjurations + 29 ability cards.
+Every ability card belongs to a piece **class**, and only the right pieces can play it. **Kings can play everything. Queens play Bishop, Rook and Queen cards (not Knight cards).** The card is played **by your selected piece**; ranges are measured from that piece.
 
-🟡 **Fireball details:** one 8d6 roll (avg 28) applies to everything in the blast, friend and foe. Shields absorb it as usual. A base inside the blast takes the damage unless it has a garrison (see Bases). You can blow up your own base; if you do, you are eliminated and your turn ends. Enemy bases resolve before yours, so a blast that knocks out the last enemy wins even if it also kills you.
+### Conjuration cards (played by your base)
+| Card | Cost | Copies | Effect |
+|---|---|---|---|
+| Summon Pawn | 1 | 5 | Summon a Pawn on or next to your base |
+| Summon Knight | 2 | 4 | Summon a Knight |
+| Summon Bishop | 3 | 3 | Summon a Bishop |
+| Summon Rook | 4 | 3 | Summon a Rook |
+| Summon Queen | 5 | 2 | Summon a Queen |
+| Summon King | 6 | 1 | Summon a King |
 
-🟡 **Deck:** each player has their own 43-card deck — 18 piece cards (5 Pawn, 4 Knight, 3 Bishop, 3 Rook, 2 Queen, 1 King) and 25 ability cards (above).
+### Ability cards
+| Card | Class | Who can play it | Cost | Copies | Effect |
+|---|---|---|---|---|---|
+| ✚ Heal | Pawn | **any piece** | 1 | 4 | 🟡 Heal **this piece or an adjacent friendly piece** 1d6 (up to max) |
+| 🗡️ Sharpen | Knight | Knight, King | 1 | 3 | This piece's next attack deals +2 |
+| ⚔️ Frenzy | Knight | Knight, King | 2 | 2 | This piece may attack one extra time this turn |
+| 💨 Haste | Knight | Knight, King | 1 | 3 | This piece may move one extra time this turn |
+| 🏹 Cordon of Arrows | Knight | Knight, King | 4 | 2 | Shoot **4 arrows**, split however you like among **enemy pieces** within **4 hexes** of this piece. Each arrow deals **1d8**, rolled separately |
+| 🔥 Fire Bolt | Bishop | Bishop, Queen, King | 2 | 3 | Deal 2d4 to an enemy piece or base within 3 hexes of this piece |
+| ☄️ Fireball | Bishop | Bishop, Queen, King | **7** | 1 | Pick any hex within **10** of this piece. Roll **8d6** once: **every** piece within **4 hexes** of it — **yours too, even the caster** — and every base there takes that much |
+| ↩️ Recall | Bishop | Bishop, Queen, King | 1 | 2 | Teleport this piece next to your base and heal it 2. A carried flag is dropped where it stood |
+| 🛡️ Shield | Rook | Rook, Queen, King | 1 | 3 | 🟡 **This piece or an adjacent friendly piece** gains a 4-point shield that absorbs damage until used up |
+| 🏰 Fortify | Rook | Rook, Queen, King | 2 | 2 | Repair your base 6 HP (up to 20) |
+| 🎴 Rally | Rook | Rook, Queen, King | 1 | 2 | Draw 2 cards (then discard down to 7 if needed) |
+| ⬆️ Promote | Queen | Queen, King | 2 | 2 | 🟡 Turn a friendly **Pawn within 3 hexes** of this piece into a full-HP Knight |
 
-## Bases & garrisons
-- Bases have 20 HP and can be attacked by adjacent enemy pieces, Fire Bolt and Fireball.
-- **Garrison:** if one of the owner's pieces stands on its base, any damage aimed at the base **hits that piece instead**. The base only takes damage once that piece moves off or is destroyed.
-  - 🟡 Excess damage does **not** spill over: if a 10-damage hit kills a 4-HP garrison pawn, the base takes nothing.
-  - 🟡 In a Fireball blast the garrison takes its own hit once and the base behind it takes nothing (even if the garrison dies in that blast).
+🟡 **Cordon of Arrows details:** only enemy **pieces** can be targets (not bases). You assign all 4 arrows before rolling; an arrow aimed at a piece that an earlier arrow already killed is wasted. Shields absorb arrows normally.
+
+🟡 **Fireball details:** one 8d6 roll (average 28) hits everything in the blast. Shields absorb it as usual. A base inside the blast takes the damage unless a piece is standing on it (see Bases). You can blow up your own base; if you do, you're out and your turn ends. Enemy bases are hit before yours, so a blast that knocks out the last enemy still wins.
+
+## Bases
+- Bases have 20 HP and can be attacked by adjacent enemy pieces and by Fire Bolt and Fireball.
+- **A piece standing on its own base takes the damage instead.** The base only takes damage once that piece moves off or is destroyed.
+  - 🟡 Leftover damage does **not** spill over: if a 10-damage hit kills a 4-HP pawn on the base, the base takes nothing.
+  - 🟡 In a Fireball blast, that piece takes its own hit once and the base behind it takes nothing (even if the piece dies).
 - A base at 0 HP is destroyed: that player is **eliminated** and all their pieces are removed (a carried flag drops).
 
 ## Winning — capture the flag
 - 🚩 The flag starts on the centre hex.
-- **Picking it up:** a piece that **stops on** the flag picks it up. 🟡 Sliding pieces (Rook, Bishop, Queen) also grab it when they **slide over** it. Knights only grab it by **landing** on it (they jump over everything else). 🟡 A piece summoned onto the flag's hex picks it up too.
-- **Carrying:** the carrier moves and fights normally (it is ringed in red with a 🚩).
-- **Dropping:** if the carrier is destroyed, the flag drops on the hex where it died, and anyone can pick it up. 🟡 Recall makes the carrier drop it where it stood.
-- **Win:** move your carrier **onto your own base hex**. 🟡 Your base hex must be empty, so a garrison has to step aside to let the carrier in.
-- **Secondary win — last base standing:** if every other base is destroyed, you win.
+- **Picking it up:** a piece must **end its move on the flag's hex** (land on it). Passing over it does nothing. 🟡 A piece summoned onto the flag's hex also picks it up.
+- **Carrying:** the carrier moves and fights normally (it has a red ring and a 🚩).
+- **Dropping:** if the carrier is destroyed, the flag drops on the hex where it died; anyone can pick it up. Recall makes the carrier drop it where it stood.
+- **Win:** move your carrier **onto your own base hex**. 🟡 Your base hex must be empty, so a piece on it has to step aside to let the carrier in.
+- **Second way to win — last base standing:** if every other base is destroyed, you win.
 
 ## Playing the prototype
 - Hot-seat on one device. Any seat can be a 🤖 bot. With 2+ humans, a hand-off screen hides each hand until its owner clicks "Show my hand" (can be turned off at setup).
-- Click a glowing piece to see moves (white dots) and attacks (red hexes). Click a card to play it; targets get a dashed outline. With Fireball selected, hovering a hex previews the blast and everything it would hit. Hover a card and click ✕ to discard it. **Esc** cancels, **Enter** ends the turn.
+- **Pick your unit:** click a glowing piece, or click **"🏰 Use my base"** (or your empty base hex). Your unit has a gold ring; the rest of your pieces fade once it has acted.
+- **Act:** with a piece picked, white dots are moves and red hexes are attacks. Cards it can't play are greyed; hover any card to see which pieces can play it and why it's blocked.
+- **Fireball:** hover to preview the blast. **Cordon of Arrows:** click enemy pieces to assign arrows (a counter shows on each), then **Fire!** (or Reset).
+- **Over the hand limit:** your hand turns red; click the card(s) to discard.
+- **Esc** cancels a card, **Enter** ends the turn.

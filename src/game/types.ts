@@ -40,11 +40,15 @@ export type Target =
   | { kind: 'base'; owner: number }
   | { kind: 'hex'; hex: Hex };
 
+/** The single unit a player acts with this turn. */
+export type Unit = { kind: 'base' } | { kind: 'piece'; id: number };
+
 export type Action =
   | { type: 'move'; pieceId: number; to: Hex }
   | { type: 'attack'; pieceId: number; target: Target }
-  | { type: 'playCard'; cardUid: number; target?: Target }
+  | { type: 'playCard'; cardUid: number; target?: Target; /** Cordon of Arrows: one enemy piece id per arrow (repeats allowed). */ arrows?: number[] }
   | { type: 'discard'; cardUid: number }
+  | { type: 'selectUnit'; unit: Unit }
   | { type: 'endTurn' };
 
 export type GameEvent =
@@ -63,6 +67,14 @@ export interface GameState {
   round: number;
   nextId: number;
   rngState: number;
+  /** This turn's unit (null until chosen). */
+  active: Unit | null;
+  /** True once the unit has done anything (moved, attacked, played a card); then it is locked in. */
+  turnActed: boolean;
+  /** Ability cards the active piece has played this turn. */
+  cardsUsed: number;
+  /** Cards the current player must discard (hand over the limit) before doing anything else. */
+  mustDiscard: number;
   /** The flag lies on `pos` when nobody carries it; otherwise `carrier` is the carrying piece's id. */
   flag: { pos: Hex | null; carrier: number | null };
   winner: number | null;
