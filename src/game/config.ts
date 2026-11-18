@@ -67,13 +67,28 @@ export type Targeting =
   | 'friendlyPawnInRange'  // a friendly Pawn within `range` of the acting piece (Promote)
   | 'enemyInRange'         // enemy piece or base within `range` of the acting piece (Fire Bolt)
   | 'areaHex'              // any hex within `range` of the acting piece (Fireball)
-  | 'arrows';              // `amount` arrows split among enemy PIECES within `range` (Cordon of Arrows)
+  | 'arrows'               // `amount` arrows split among enemy PIECES within `range` (Cordon of Arrows)
+  | 'enemyPieceInRange';   // one enemy PIECE within `range` of the acting piece (Armor Rend)
 
 export type CardId =
   | 'summon_pawn' | 'summon_knight' | 'summon_bishop' | 'summon_rook' | 'summon_queen' | 'summon_king'
   | 'firebolt' | 'fireball' | 'sharpen' | 'frenzy'
   | 'shield' | 'heal' | 'fortify'
-  | 'haste' | 'promote' | 'rally' | 'recall' | 'cordon';
+  | 'haste' | 'promote' | 'rally' | 'recall' | 'cordon'
+  | 'gambeson' | 'breastplate' | 'plate' | 'armor_rend';
+
+export type ArmorKind = 'gambeson' | 'breastplate' | 'plate';
+
+/**
+ * Armor reduces damage from each hit the piece takes (attacks, Fire Bolt, each arrow, Fireball).
+ * Shield absorbs FIRST; armor then reduces whatever gets through. Armors don't stack:
+ * equipping one replaces the old one. One-shot armor is used up by the next hit that gets past the shield.
+ */
+export const ARMORS: Record<ArmorKind, { name: string; reduce: number; oneShot: boolean; icon: string }> = {
+  gambeson:    { name: 'Gambeson',    reduce: 2, oneShot: true,  icon: '🧥' },
+  breastplate: { name: 'Breastplate', reduce: 4, oneShot: false, icon: '🦺' },
+  plate:       { name: 'Plate Armor', reduce: 6, oneShot: false, icon: '🛡' },
+};
 
 export interface CardDef {
   id: CardId;
@@ -116,11 +131,15 @@ export const CARDS: Record<CardId, CardDef> = {
   // ---- Bishop cards (Bishop, Queen, King) ----
   firebolt: { id: 'firebolt', name: 'Fire Bolt', cls: 'bishop', category: 'offense', cost: 2, targeting: 'enemyInRange', range: 3, dice: { count: 2, die: 4 }, copies: 3, text: 'Deal 2d4 to an enemy piece or base within 3 hexes of this piece.' },
   fireball: { id: 'fireball', name: 'Fireball',  cls: 'bishop', category: 'offense', cost: 7, targeting: 'areaHex', range: 10, radius: 4, dice: { count: 8, die: 6 }, copies: 1, text: 'Pick a hex within 10 of this piece. Roll 8d6: EVERY piece (yours too) and base within 4 hexes takes it.' },
+  armor_rend: { id: 'armor_rend', name: 'Armor Rend', cls: 'bishop', category: 'offense', cost: 3, targeting: 'enemyPieceInRange', range: 4, copies: 2, text: 'Strip all armor and shields from an enemy piece within 4 hexes of this piece.' },
   recall:   { id: 'recall',   name: 'Recall',    cls: 'bishop', category: 'special', cost: 1, targeting: 'self', amount: 2, copies: 2, text: 'Teleport this piece next to your base and heal it 2. A carried flag is dropped.' },
 
   // ---- Rook cards (Rook, Queen, King) ----
   shield:   { id: 'shield',   name: 'Shield',    cls: 'rook',   category: 'defense', cost: 1, targeting: 'selfOrAdjacentFriend', amount: 4, copies: 3, text: 'This piece or an adjacent friendly piece gains a 4-point damage shield.' },
   fortify:  { id: 'fortify',  name: 'Fortify',   cls: 'rook',   category: 'defense', cost: 2, targeting: 'none', amount: 6, copies: 2, text: 'Repair your base for 6 HP (up to its max).' },
+  gambeson:    { id: 'gambeson',    name: 'Gambeson',    cls: 'rook', category: 'defense', cost: 1, targeting: 'self', copies: 3, text: 'Armor (replaces current): the next hit on this piece is reduced by up to 2, then it is gone.' },
+  breastplate: { id: 'breastplate', name: 'Breastplate', cls: 'rook', category: 'defense', cost: 3, targeting: 'self', copies: 2, text: 'Armor (replaces current): every hit on this piece is reduced by 4.' },
+  plate:       { id: 'plate',       name: 'Plate Armor', cls: 'rook', category: 'defense', cost: 5, targeting: 'self', copies: 1, text: 'Armor (replaces current): every hit on this piece is reduced by 6.' },
   rally:    { id: 'rally',    name: 'Rally',     cls: 'rook',   category: 'special', cost: 1, targeting: 'none', amount: 2, copies: 2, text: 'Draw 2 cards.' },
 
   // ---- Queen card (Queen, King) ----

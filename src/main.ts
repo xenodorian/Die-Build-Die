@@ -1,5 +1,5 @@
 import './ui/style.css';
-import { CARDS, PIECES, PLAYER_COLORS, PLAYER_NAMES, RULES, type CardCategory } from './game/config';
+import { ARMORS, CARDS, PIECES, PLAYER_COLORS, PLAYER_NAMES, RULES, type CardCategory } from './game/config';
 import {
   CENTER, activePiece, applyAction, areaVictims, baseAt, canBeUnit, canPlayCard, cardBlockReason, cardTargets, cardUsersText, currentPlayer,
   flagCarrier, flagHex, legalAttacks, legalMoves, newGame, pieceAt,
@@ -115,7 +115,7 @@ const needsHandoff = () => ui.hideHands && !currentPlayer(ui.state!).isBot && hu
 const CATEGORY_LABEL: Record<CardCategory, string> = { conjuration: 'Conjuration', offense: 'Offense', defense: 'Defense', special: 'Special' };
 const CLASS_BADGE: Record<string, string> = { conjuration: '🏰 Base', pawn: '♟ Pawn', knight: '♞ Knight', bishop: '♝ Bishop', rook: '♜ Rook', queen: '♛ Queen' };
 const CATEGORY_ICON: Record<string, string> = {
-  firebolt: '🔥', fireball: '☄️', cordon: '🏹', sharpen: '🗡️', frenzy: '⚔️', shield: '🛡️', heal: '✚', fortify: '🏰', haste: '💨', promote: '⬆️', rally: '🎴', recall: '↩️',
+  firebolt: '🔥', fireball: '☄️', cordon: '🏹', gambeson: '🧥', breastplate: '🦺', plate: '🛡', armor_rend: '🔨', sharpen: '🗡️', frenzy: '⚔️', shield: '🛡️', heal: '✚', fortify: '🏰', haste: '💨', promote: '⬆️', rally: '🎴', recall: '↩️',
 };
 
 // ------------------------------------------------------------------ highlights
@@ -227,6 +227,7 @@ function renderBoard(hl: HL): string {
       <rect x="${x - 12}" y="${y + 13}" width="24" height="3.5" rx="1.7" class="hpbg"/>
       <rect x="${x - 12}" y="${y + 13}" width="${24 * frac}" height="3.5" rx="1.7" class="hp ${frac <= 0.34 ? 'low' : ''}"/>
       ${p.bonusDamage ? `<text class="badge" x="${x + 12}" y="${y - 9}">+${p.bonusDamage}</text>` : ''}
+      ${p.armor ? `<text class="armor-badge" x="${x - 13}" y="${y + 18}">${ARMORS[p.armor].icon}</text>` : ''}
       ${arrowsHere ? `<circle cx="${x - 12}" cy="${y - 11}" r="7" class="arrow-badge"/><text class="arrow-count" x="${x - 12}" y="${y - 8}">${arrowsHere}</text>` : ''}
       ${s.flag.carrier === p.id ? `<circle cx="${x}" cy="${y}" r="${big ? 19 : 17.5}" class="carrier-ring"/><text class="carrier-flag" x="${x + 13}" y="${y - 7}">🚩</text>` : ''}
     </g>`;
@@ -301,7 +302,8 @@ function unitPanel(): string {
   const st = PIECES[sel.kind];
   return `<div class="selinfo" style="--pc:${me.color}">
       <div class="big">${st.glyph} ${st.name}${s.flag.carrier === sel.id ? ' 🚩' : ''}</div>
-      <div>❤ ${sel.hp}/${sel.maxHp}${sel.shield ? ` · 🛡 ${sel.shield}` : ''} · 🎲 d${st.die}${sel.bonusDamage ? ` +${sel.bonusDamage}` : ''}</div>
+      <div>❤ ${sel.hp}/${sel.maxHp}${sel.shield ? ` · 🔵 shield ${sel.shield}` : ''} · 🎲 d${st.die}${sel.bonusDamage ? ` +${sel.bonusDamage}` : ''}</div>
+      ${sel.armor ? `<div>${ARMORS[sel.armor].icon} ${ARMORS[sel.armor].name}: −${ARMORS[sel.armor].reduce} ${ARMORS[sel.armor].oneShot ? 'on the next hit' : 'on every hit'}</div>` : ''}
       <div>Moves ${sel.movesLeft} · Attacks ${sel.attacksLeft} · Cards ${Math.max(0, RULES.cardsPerPieceTurn - s.cardsUsed)}</div>
       <div>${lock}</div>
     </div>${s.turnActed ? '' : baseBtn}`;

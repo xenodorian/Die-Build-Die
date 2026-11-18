@@ -1,4 +1,4 @@
-import { CARDS, CLASS_USERS, PIECES, PLAYER_COLORS, PLAYER_NAMES, RULES, buildDeckList, canClassBeUsedBy, type CardDef, type Die, type PieceKind } from './config';
+import { ARMORS, CARDS, CLASS_USERS, PIECES, PLAYER_COLORS, PLAYER_NAMES, RULES, buildDeckList, canClassBeUsedBy, type CardDef, type Die, type PieceKind } from './config';
 import {
   DIAGONALS, DIRECTIONS, KNIGHT_JUMPS, corners, hex, hexAdd, hexDistance, hexEq, hexScale, hexagonBoard, inBoard, neighbors,
   type Hex,
@@ -73,6 +73,7 @@ function spawnPiece(state: GameState, owner: number, kind: PieceKind, pos: Hex, 
     attacksLeft: sick ? 0 : RULES.attacksPerTurn,
     shield: 0,
     bonusDamage: 0,
+    armor: null,
   };
   state.pieces.push(piece);
   return piece;
@@ -219,6 +220,10 @@ export function cardTargets(s: GameState, owner: number, def: CardDef, actor?: P
         .map((p) => ({ kind: 'piece', id: p.id }));
     case 'enemyInRange':
       return enemiesNear(s, [actor.pos], def.range ?? 1, owner);
+    case 'enemyPieceInRange':
+      return s.pieces
+        .filter((p) => p.owner !== owner && hexDistance(p.pos, actor.pos) <= (def.range ?? 1))
+        .map((p) => ({ kind: 'piece', id: p.id }));
     case 'arrows':
       return s.pieces
         .filter((p) => p.owner !== owner && hexDistance(p.pos, actor.pos) <= (def.range ?? 1))
@@ -425,11 +430,21 @@ function dealDamage(s: GameState, events: GameEvent[], target: Target, amount: n
     const p = pieceById(s, target.id);
     if (!p) return;
     const name = targetName(s, target);
+    // Shield absorbs first, then armor reduces what gets through.
     const absorbed = Math.min(p.shield, amount);
     p.shield -= absorbed;
-    const dmg = amount - absorbed;
+    let dmg = amount - absorbed;
+    let blocked = 0;
+    let armorNote = '';
+    if (p.armor && dmg > 0) {
+      const a = ARMORS[p.armor];
+      blocked = Math.min(a.reduce, dmg);
+      dmg -= blocked;
+      armorNote = ` (${a.name} blocked ${blocked}${a.oneShot ? ' and is used up' : ''})`;
+      if (a.oneShot) p.armor = null;
+    }
     p.hp -= dmg;
-    log(s, events, `  ${name} takes ${dmg}${absorbed ? ` (shield absorbed ${absorbed})` : ''} → ${Math.max(p.hp, 0)}/${p.maxHp} HP`);
+    log(s, events, `  ${name} takes ${dmg}${absorbed ? ` (shield absorbed ${absorbed})` : ''}${armorNote} → ${Math.max(p.hp, 0)}/${p.maxHp} HP`);
     if (p.hp <= 0) {
       log(s, events, `  ☠ ${name} is destroyed.`);
       removePiece(s, events, p);
@@ -642,6 +657,21 @@ function resolveCard(s: GameState, events: GameEvent[], me: Player, def: CardDef
       const before = me.baseHp;
       me.baseHp = Math.min(RULES.baseHp, me.baseHp + def.amount!);
       log(s, events, `  Base repaired by ${me.baseHp - before} → ${me.baseHp}/${RULES.baseHp}.`);
+      break;
+    }
+    case 'gambeson':
+    case 'breastplate':
+    case 'plate': {
+      const old = piece!.armor;
+      piece!.armor = def.id;
+      log(s, events, `  ${targetName(s, target!)} puts on ${ARMORS[def.id].name}${old ? ` (replacing ${ARMORS[old].name})` : ''}.`);
+      break;
+    }
+    case 'armor_rend': {
+      const lost = [piece!.armor ? ARMORS[piece!.armor].name : '', piece!.shield ? `${piece!.shield}-pt shield` : ''].filter(Boolean).join(' and ');
+      piece!.armor = null;
+      piece!.shield = 0;
+      log(s, events, `  ${targetName(s, target!)} ${lost ? `loses its ${lost}` : 'had nothing to rend'}.`);
       break;
     }
     case 'haste':

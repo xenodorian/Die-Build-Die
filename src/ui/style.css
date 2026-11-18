@@ -184,3 +184,4 @@ a { color: var(--gold); }
 .muted { color: var(--muted); font-size: 13px; }
 .row-btns { margin-top: 8px; display: flex; gap: 8px; align-items: center; }
 .info .btn { margin-top: 8px; width: 100%; }
+.armor-badge { font-size: 11px; text-anchor: middle; pointer-events: none; }

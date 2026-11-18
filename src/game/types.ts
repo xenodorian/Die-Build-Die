@@ -1,4 +1,4 @@
-import type { CardId, Die, PieceKind } from './config';
+import type { ArmorKind, CardId, Die, PieceKind } from './config';
 import type { Hex } from './hex';
 
 export interface Card {
@@ -17,6 +17,8 @@ export interface Piece {
   attacksLeft: number;
   shield: number;
   bonusDamage: number;
+  /** Equipped armor (Rook cards); at most one. */
+  armor?: ArmorKind | null;
 }
 
 export interface Player {

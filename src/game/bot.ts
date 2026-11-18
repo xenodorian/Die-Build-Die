@@ -1,4 +1,4 @@
-import { CARDS, PIECES, RULES, canClassBeUsedBy, type PieceKind } from './config';
+import { ARMORS, CARDS, PIECES, RULES, canClassBeUsedBy, type PieceKind } from './config';
 import { applyAction, flagCarrier, flagHex, legalActions, selectableUnits, summonHexes } from './engine';
 import { DIAGONALS, DIRECTIONS, KNIGHT_JUMPS, hex, hexDistance, hexEq, inBoard, type Hex } from './hex';
 import type { Action, GameState, Unit } from './types';
@@ -96,7 +96,7 @@ export function evaluate(s: GameState, me: number): number {
 
   // Material
   for (const p of s.pieces) {
-    const w = WORTH[p.kind] + p.hp * 2 + p.shield + p.bonusDamage;
+    const w = WORTH[p.kind] + p.hp * 2 + p.shield + p.bonusDamage + (p.armor ? ARMORS[p.armor].reduce * (ARMORS[p.armor].oneShot ? 1 : 3) : 0);
     v += p.owner === me ? w : -w * share;
   }
   // Bases

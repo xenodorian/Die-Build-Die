@@ -468,3 +468,74 @@ describe('Cordon of Arrows', () => {
     expect(CARDS.cordon.cost).toBe(4);
   });
 });
+
+describe('armor', () => {
+  function equip(s: GameState, p: Piece, id: 'gambeson' | 'breastplate' | 'plate') {
+    s.players[0].hand = [{ uid: 4242, id }];
+    s.players[0].energy = 7;
+    applyAction(s, { type: 'selectUnit', unit: { kind: 'piece', id: p.id } });
+    applyAction(s, { type: 'playCard', cardUid: 4242 });
+  }
+
+  it('only Rook/Queen/King can equip armor, and a new armor replaces the old one', () => {
+    expect(canClassBeUsedBy(CARDS.plate.cls, 'knight')).toBe(false);
+    expect(canClassBeUsedBy(CARDS.plate.cls, 'queen')).toBe(true);
+    const s = setup(2);
+    s.pieces = [];
+    const r = place(s, 0, 'rook', 0, -5);
+    equip(s, r, 'breastplate');
+    expect(r.armor).toBe('breastplate');
+    pass(s); pass(s);
+    equip(s, r, 'plate');
+    expect(r.armor).toBe('plate');
+  });
+
+  it('Breastplate reduces every hit by 4; shield absorbs before armor', () => {
+    const s = setup(2, 5);
+    s.pieces = [];
+    const r = place(s, 0, 'rook', 0, -5);
+    equip(s, r, 'breastplate');
+    r.shield = 3;
+    pass(s);
+    const k = place(s, 1, 'king', 1, -5);
+    const ev = applyAction(s, { type: 'attack', pieceId: k.id, target: { kind: 'piece', id: r.id } });
+    const roll = ev.find((e) => e.type === 'roll')!;
+    const dmg = roll.type === 'roll' ? roll.total : 0;
+    const expected = Math.max(0, Math.max(0, dmg - 3) - 4);
+    expect(r.shield).toBe(Math.max(0, 3 - dmg));
+    expect(s.pieces.includes(r) ? 10 - r.hp : 10).toBe(Math.min(10, expected));
+    expect(r.armor).toBe('breastplate');
+  });
+
+  it('Gambeson blocks up to 2 of the next hit, then is gone', () => {
+    const s = setup(2, 6);
+    s.pieces = [];
+    const r = place(s, 0, 'rook', 0, -5);
+    equip(s, r, 'gambeson');
+    pass(s);
+    const p = place(s, 1, 'pawn', 1, -5);
+    const ev = applyAction(s, { type: 'attack', pieceId: p.id, target: { kind: 'piece', id: r.id } });
+    const roll = ev.find((e) => e.type === 'roll')!;
+    const dmg = roll.type === 'roll' ? roll.total : 0;
+    expect(10 - r.hp).toBe(Math.max(0, dmg - 2));
+    expect(r.armor).toBeNull();
+  });
+
+  it('Armor Rend strips armor and shield from an enemy piece within 4', () => {
+    const s = setup(2);
+    s.pieces = [];
+    const b = place(s, 0, 'bishop', 0, -5);
+    const foe = place(s, 1, 'rook', 0, -1);
+    const far = place(s, 1, 'rook', 0, 2);
+    foe.armor = 'plate';
+    foe.shield = 4;
+    s.players[0].hand = [{ uid: 1, id: 'armor_rend' }];
+    s.players[0].energy = 3;
+    applyAction(s, { type: 'selectUnit', unit: { kind: 'piece', id: b.id } });
+    expect(cardTargets(s, 0, CARDS.armor_rend, b)).toEqual([{ kind: 'piece', id: foe.id }]);
+    void far;
+    applyAction(s, { type: 'playCard', cardUid: 1, target: { kind: 'piece', id: foe.id } });
+    expect(foe.armor).toBeNull();
+    expect(foe.shield).toBe(0);
+  });
+});

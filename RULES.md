@@ -40,7 +40,7 @@ Damage is rolled on the piece's die. Attacks always hit and reach **adjacent** h
 - A piece at 0 HP is removed.
 
 ## Cards
-Each player has their own **47-card deck**: 18 conjurations + 29 ability cards.
+Each player has their own **55-card deck**: 18 conjurations + 37 ability cards.
 Every ability card belongs to a piece **class**, and only the right pieces can play it. **Kings can play everything. Queens play Bishop, Rook and Queen cards (not Knight cards).** The card is played **by your selected piece**; ranges are measured from that piece.
 
 ### Conjuration cards (played by your base)
@@ -63,11 +63,18 @@ Every ability card belongs to a piece **class**, and only the right pieces can p
 | 🏹 Cordon of Arrows | Knight | Knight, King | 4 | 2 | Shoot **4 arrows**, split however you like among **enemy pieces** within **4 hexes** of this piece. Each arrow deals **1d8**, rolled separately |
 | 🔥 Fire Bolt | Bishop | Bishop, Queen, King | 2 | 3 | Deal 2d4 to an enemy piece or base within 3 hexes of this piece |
 | ☄️ Fireball | Bishop | Bishop, Queen, King | **7** | 1 | Pick any hex within **10** of this piece. Roll **8d6** once: **every** piece within **4 hexes** of it — **yours too, even the caster** — and every base there takes that much |
+| 🔨 Armor Rend | Bishop | Bishop, Queen, King | 3 | 2 | Remove all armor **and** shields from one enemy piece 🟡 within **4 hexes** of this piece |
 | ↩️ Recall | Bishop | Bishop, Queen, King | 1 | 2 | Teleport this piece next to your base and heal it 2. A carried flag is dropped where it stood |
 | 🛡️ Shield | Rook | Rook, Queen, King | 1 | 3 | 🟡 **This piece or an adjacent friendly piece** gains a 4-point shield that absorbs damage until used up |
+| 🧥 Gambeson | Rook | Rook, Queen, King | 1 | 3 | Armor on this piece: the **next** hit is reduced by up to 2, then it's gone |
+| 🦺 Breastplate | Rook | Rook, Queen, King | 3 | 2 | Armor on this piece: **every** hit is reduced by 4 |
+| 🛡 Plate Armor | Rook | Rook, Queen, King | 5 | 1 | Armor on this piece: **every** hit is reduced by 6 |
 | 🏰 Fortify | Rook | Rook, Queen, King | 2 | 2 | Repair your base 6 HP (up to 20) |
 | 🎴 Rally | Rook | Rook, Queen, King | 1 | 2 | Draw 2 cards (then discard down to 7 if needed) |
 | ⬆️ Promote | Queen | Queen, King | 2 | 2 | 🟡 Turn a friendly **Pawn within 3 hexes** of this piece into a full-HP Knight |
+
+**Armor:** a piece wears at most one armor; equipping another **replaces** it. The armor goes on the piece that plays the card. **Shield absorbs first, then armor reduces whatever gets through.**
+🟡 Armor works against **every hit**: attacks, Fire Bolt, Fireball, and **each arrow separately**. Gambeson is used up by the next hit that gets past the shield (a hit fully soaked by the shield doesn't use it). Damage aimed at a base and taken by the piece standing on it is reduced by that piece's armor too.
 
 🟡 **Cordon of Arrows details:** only enemy **pieces** can be targets (not bases). You assign all 4 arrows before rolling; an arrow aimed at a piece that an earlier arrow already killed is wasted. Shields absorb arrows normally.
 
