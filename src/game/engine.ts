@@ -390,10 +390,7 @@ function drawCards(s: GameState, events: GameEvent[], who: Player, count: number
     drawn++;
   }
   events.push({ type: 'draw', player: who.index, count: drawn, burned: 0 });
-  if (who.index === s.current) {
-    s.mustDiscard = Math.max(0, who.hand.length - RULES.handLimit);
-    if (s.mustDiscard) log(s, events, `${who.name} has ${who.hand.length} cards and must discard ${s.mustDiscard}.`, who.index);
-  }
+  // The hand limit is checked when the turn ends, so a full hand never blocks you from acting.
 }
 
 function declareWin(s: GameState, events: GameEvent[], player: number, reason: string) {
@@ -659,8 +656,12 @@ export function applyAction(s: GameState, action: Action): GameEvent[] {
       assert(card, 'Card not in hand');
       me.hand = me.hand.filter((c) => c !== card);
       me.discard.push(card);
-      if (s.mustDiscard > 0) s.mustDiscard--;
       log(s, events, `${me.name} discards ${CARDS[card.id].name}.`, me.index);
+      if (s.mustDiscard > 0) {
+        s.mustDiscard--;
+        // That was the last card over the limit: the turn the player already ended now passes.
+        if (s.mustDiscard === 0) advanceTurn(s, events);
+      }
       break;
     }
     case 'selectUnit': {
@@ -688,6 +689,14 @@ export function applyAction(s: GameState, action: Action): GameEvent[] {
       break;
     }
     case 'endTurn': {
+      const over = me.hand.length - RULES.handLimit;
+      if (over > 0) {
+        // Hand limit: discard down to 7 before the turn passes.
+        s.mustDiscard = over;
+        s.active = null;
+        log(s, events, `${me.name} has ${me.hand.length} cards and must discard ${over} to end the turn.`, me.index);
+        break;
+      }
       log(s, events, `${me.name} ends their turn.`, me.index);
       advanceTurn(s, events);
       break;

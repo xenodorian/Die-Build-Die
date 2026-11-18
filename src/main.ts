@@ -1,5 +1,5 @@
 import './ui/style.css';
-import { ARMORS, CARDS, PIECES, PLAYER_COLORS, PLAYER_NAMES, RULES, type CardCategory } from './game/config';
+import { ARMORS, CARDS, PIECES, PLAYER_COLORS, PLAYER_NAMES, RULES, canClassBeUsedBy, type CardCategory } from './game/config';
 import {
   CENTER, activePiece, applyAction, areaVictims, baseAt, canBeUnit, canPlayCard, cardBlockReason, cardTargets, cardUsersText, currentPlayer,
   flagCarrier, flagHex, legalAttacks, legalMoves, newGame, pieceAt,
@@ -8,7 +8,7 @@ import {
 } from './game/engine';
 import { chooseBotAction } from './game/bot';
 import { hexDistance, hexEq, hexagonBoard, type Hex } from './game/hex';
-import type { Action, Card, Difficulty, GameEvent, GameMode, GameState, PlayerSetup, Target } from './game/types';
+import type { Action, Card, Difficulty, GameEvent, GameMode, GameState, Piece, PlayerSetup, Target, Unit } from './game/types';
 import { animateRoll } from './ui/dice';
 
 const RULES_URL = 'https://github.com/xenodorian/Die-Build-Die/blob/main/RULES.md';
@@ -27,8 +27,28 @@ interface Ui {
   hideHands: boolean;
   revealed: boolean; // current human has acknowledged the hand-off screen
   fastDice: boolean;
+  /** A card clicked before choosing which of several pieces should play it. */
+  cardIntent: number | null;
 }
-const ui: Ui = { state: null, selectedPiece: null, pendingCard: null, arrows: [], busy: false, hideHands: true, revealed: true, fastDice: false };
+const ui: Ui = { state: null, selectedPiece: null, pendingCard: null, arrows: [], busy: false, hideHands: true, revealed: true, fastDice: false, cardIntent: null };
+
+/**
+ * Units that could play `card` if picked now. Before your unit has acted you may still switch,
+ * so a card your current pick can't use is still reachable by switching to one that can.
+ */
+function unitsThatCanPlay(s: GameState, card: Card): Unit[] {
+  if (s.turnActed || s.mustDiscard > 0 || s.winner !== null) return [];
+  const saved = s.active;
+  const out: Unit[] = [];
+  const candidates: Unit[] = [{ kind: 'base' }, ...s.pieces.filter((p) => p.owner === s.current).map((p): Unit => ({ kind: 'piece', id: p.id }))];
+  for (const u of candidates) {
+    if (!canBeUnit(s, u)) continue;
+    s.active = u;
+    if (canPlayCard(s, s.current, card)) out.push(u);
+  }
+  s.active = saved;
+  return out;
+}
 
 // ------------------------------------------------------------------ setup screen
 
@@ -311,6 +331,14 @@ function renderBoard(hl: HL): string {
     const { x, y } = px(m);
     overlays += `<circle class="hl-capture" cx="${x}" cy="${y}" r="17"/><text class="capture-icon" x="${x}" y="${y - 14}">⛓</text>`;
   }
+  // A card waiting for you to pick which piece plays it
+  if (ui.cardIntent !== null) {
+    const card = me.hand.find((c) => c.uid === ui.cardIntent);
+    if (card) for (const u of unitsThatCanPlay(s, card)) {
+      const p = u.kind === 'piece' ? pieceById(s, u.id) : undefined;
+      if (p) overlays += `<polygon class="hl-card" style="--pc:${me.color}" points="${hexPoints(p.pos, S - 2)}"/>`;
+    }
+  }
   // Attack + card target highlights (drawn on top)
   for (const hx of atkHexes) overlays += `<polygon class="hl-attack" points="${hexPoints(hx, S - 2)}"/>`;
   for (const hx of cardHexes) overlays += `<polygon class="hl-card" style="--pc:${me.color}" points="${hexPoints(hx, S - 2)}"/>`;
@@ -333,9 +361,14 @@ function renderCard(card: Card, playable: boolean, pending: boolean, discardable
   const d = CARDS[card.id];
   const icon = d.summons ? PIECES[d.summons].glyph : CATEGORY_ICON[d.id] ?? '✦';
   const stats = d.summons ? `<div class="stats"><span>❤ ${PIECES[d.summons].hp}</span><span>🎲 d${PIECES[d.summons].die}</span></div>` : '';
-  const reason = playable ? null : cardBlockReason(s, s.current, card);
-  const tip = `${d.name} — ${cardUsersText(d)}.\n${d.text}${reason && !forcedDiscard ? `\n\n✖ ${reason}` : ''}${forcedDiscard ? '\n\nClick to discard this card.' : ''}`;
-  return `<button class="card cat-${d.category} cls-${d.cls} ${playable || forcedDiscard ? 'playable' : 'dim'} ${pending ? 'pending' : ''} ${forcedDiscard ? 'to-discard' : ''}" data-card="${card.uid}" title="${escapeHtml(tip)}">
+  const switchTo = !playable && !forcedDiscard && !ui.busy ? unitsThatCanPlay(s, card) : [];
+  const reason = playable || switchTo.length ? null : cardBlockReason(s, s.current, card);
+  const switchNote = switchTo.length
+    ? `\n\n↪ Click to switch to ${switchTo.length > 1 ? 'one of your pieces that can play it' : switchTo[0].kind === 'base' ? 'your base' : `your ${PIECES[pieceById(s, switchTo[0].id)!.kind].name}`} and play it (you can switch until your unit acts).`
+    : '';
+  const tip = `${d.name} — ${cardUsersText(d)}.\n${d.text}${reason && !forcedDiscard ? `\n\n✖ ${reason}` : ''}${switchNote}${forcedDiscard ? '\n\nClick to discard this card.' : ''}`;
+  if (switchTo.length) playable = true;
+  return `<button class="card cat-${d.category} cls-${d.cls} ${playable || forcedDiscard ? 'playable' : 'dim'} ${pending || ui.cardIntent === card.uid ? 'pending' : ''} ${switchTo.length ? 'via-switch' : ''} ${forcedDiscard ? 'to-discard' : ''}" data-card="${card.uid}" title="${escapeHtml(tip)}">
     <span class="cost">${d.cost}</span>
     ${discardable && !forcedDiscard ? `<span class="discard" data-discard="${card.uid}" title="Discard this card">✕</span>` : ''}
     <span class="cls">${CLASS_BADGE[d.cls]}</span>
@@ -357,6 +390,25 @@ function flagStatus(): string {
   const f = flagHex(s);
   if (!f) return '🚩 The flag is missing.';
   return hexEq(f, CENTER) ? '🚩 The flag waits on the centre hex. Grab it and bring it to your base!' : `🚩 The flag lies on the ground at (${f?.q},${f?.r}). Anyone can grab it.`;
+}
+
+/** What the selected piece can still do this turn, and why not if it can't. */
+function actionChecklist(p: Piece): string {
+  const s = ui.state!;
+  const me = currentPlayer(s);
+  const row = (state: 'open' | 'done' | 'none', label: string) =>
+    `<li class="act ${state}">${state === 'done' ? '✓' : state === 'open' ? '●' : '○'} ${label}</li>`;
+  const moves = legalMoves(s, p).length;
+  const atks = legalAttacks(s, p).length;
+  const playable = me.hand.filter((c) => CARDS[c.id].cls !== 'conjuration' && canPlayCard(s, s.current, c)).length;
+  const fits = me.hand.filter((c) => CARDS[c.id].cls !== 'conjuration' && canClassBeUsedBy(CARDS[c.id].cls, p.kind)).length;
+  const cardsLeft = RULES.cardsPerPieceTurn - s.cardsUsed;
+  return `<ul class="actions">
+    ${p.movesLeft <= 0 ? row('done', 'Moved') : moves ? row('open', `<b>Move</b>: click a white dot${p.movesLeft > 1 ? ` (${p.movesLeft} moves left)` : ''}`) : row('none', 'Move: no free hex to move to')}
+    ${p.attacksLeft <= 0 ? row('done', 'Attacked') : atks ? row('open', `<b>Attack</b>: click a red hex${p.attacksLeft > 1 ? ` (${p.attacksLeft} attacks left)` : ''}`) : row('none', `Attack: no enemy in reach yet (must be adjacent)`)}
+    ${cardsLeft <= 0 ? row('done', 'Card played') : playable ? row('open', `<b>Card</b>: ${playable} glowing card${playable > 1 ? 's' : ''} in your hand`) : row('none', fits ? 'Card: not enough energy or no target for your cards' : `Card: none of your cards can be used by a ${PIECES[p.kind].name}`)}
+  </ul>
+  <div class="muted small">Do these in any order, then press End turn.</div>`;
 }
 
 /** The "this turn's unit" panel. */
@@ -387,7 +439,7 @@ function unitPanel(): string {
       ${sel.armor ? `<div>${ARMORS[sel.armor].icon} ${ARMORS[sel.armor].name}: ${ARMORS[sel.armor].pool ? `soaks ${sel.armorPool ?? 0} more damage` : `−${ARMORS[sel.armor].reduce} on every hit`}</div>` : ''}
       ${sel.shackles ? `<div>⛓ Shackles: move onto an enemy piece with less than ${sel.hp} HP to capture it (Shift+click to attack instead)</div>` : ''}
       ${canRebuild(s, sel) ? `<button id="rebuild" class="btn">🔨 Rebuild base (1d8 · uses this piece's attack and move)</button>` : ''}
-      <div>Moves ${sel.movesLeft} · Attacks ${sel.attacksLeft} · Cards ${Math.max(0, RULES.cardsPerPieceTurn - s.cardsUsed)}</div>
+      ${actionChecklist(sel)}
       <div>${lock}</div>
     </div>${s.turnActed ? '' : baseBtn}`;
 }
@@ -455,7 +507,7 @@ function renderGame() {
       <div class="board-wrap">${renderBoard(hl)}</div>
       ${renderSidebar()}
     </main>
-    <footer class="hand ${s.mustDiscard > 0 && showHand ? 'discarding' : ''}">${s.mustDiscard > 0 && showHand ? `<div class="discard-banner">Hand limit ${RULES.handLimit}: choose ${s.mustDiscard} to discard</div>` : ''}${hand}</footer>
+    <footer class="hand ${s.mustDiscard > 0 && showHand ? 'discarding' : ''}">${s.mustDiscard > 0 && showHand ? `<div class="discard-banner">Hand limit ${RULES.handLimit}: click ${s.mustDiscard === 1 ? 'a card' : `${s.mustDiscard} cards`} to discard and finish your turn</div>` : ''}${hand}</footer>
     <div class="dice-overlay" id="dice"></div>
     ${!ui.revealed && s.winner === null ? `<div class="modal"><div class="modal-card" style="--pc:${me.color}">
       <div class="swatch big"></div><h2>${escapeHtml(me.name)}'s turn</h2><p>Pass the device to ${escapeHtml(me.name)}.</p>
@@ -542,7 +594,18 @@ function onCardClick(uid: number) {
     void doAction({ type: 'discard', cardUid: uid });
     return;
   }
-  if (!canPlayCard(s, s.current, card)) return;
+  if (!canPlayCard(s, s.current, card)) {
+    // Not playable by the current pick: switch to a unit that can play it (allowed until your unit acts).
+    const units = unitsThatCanPlay(s, card);
+    if (units.length === 1) {
+      void doAction({ type: 'selectUnit', unit: units[0] }).then(() => onCardClick(uid));
+    } else if (units.length > 1) {
+      ui.cardIntent = ui.cardIntent === uid ? null : uid;
+      renderGame();
+    }
+    return;
+  }
+  ui.cardIntent = null;
   if (ui.pendingCard === uid) {
     ui.pendingCard = null;
     ui.arrows = [];
@@ -605,6 +668,17 @@ function onHexClick(h: Hex, shift = false) {
     }
     return;
   }
+  if (ui.cardIntent !== null) {
+    const card = currentPlayer(s).hand.find((c) => c.uid === ui.cardIntent);
+    const uid = ui.cardIntent;
+    ui.cardIntent = null;
+    if (card && piece && piece.owner === s.current && unitsThatCanPlay(s, card).some((u) => u.kind === 'piece' && u.id === piece.id)) {
+      void doAction({ type: 'selectUnit', unit: { kind: 'piece', id: piece.id } }).then(() => onCardClick(uid));
+      return;
+    }
+    renderGame();
+    return;
+  }
   const ap = activePiece(s);
   if (ap) {
     // Shackles: moving onto an enemy piece captures it. That wins over attacking it; Shift+click attacks instead.
@@ -637,6 +711,7 @@ function onHexClick(h: Hex, shift = false) {
 document.addEventListener('keydown', (e) => {
   if (!ui.state) return;
   if (e.key === 'Escape') {
+    ui.cardIntent = null;
     ui.pendingCard = null;
     ui.arrows = [];
     renderGame();
@@ -660,6 +735,7 @@ async function playEvents(events: GameEvent[], fast: boolean) {
 async function doAction(action: Action) {
   const s = ui.state!;
   const actorWasBot = currentPlayer(s).isBot;
+  const who = s.current;
   let events: GameEvent[];
   try {
     events = applyAction(s, action);
@@ -673,12 +749,13 @@ async function doAction(action: Action) {
   renderGame();
   await playEvents(events, actorWasBot);
   ui.busy = false;
-  if (action.type === 'endTurn') {
+  const turnPassed = s.current !== who;
+  if (turnPassed) {
     ui.selectedPiece = null;
     ui.revealed = !needsHandoff();
   }
   renderGame();
-  if (action.type === 'endTurn') void maybeRunBot();
+  if (turnPassed) void maybeRunBot();
 }
 
 let botRunning = false;
@@ -704,6 +781,7 @@ async function maybeRunBot() {
 /** Like doAction, but does not recursively start the bot loop (the loop drives itself). */
 async function doActionNoChain(action: Action) {
   const s = ui.state!;
+  const whoBot = s.current;
   let events: GameEvent[];
   try {
     events = applyAction(s, action);
@@ -718,7 +796,7 @@ async function doActionNoChain(action: Action) {
   renderGame();
   await playEvents(events, true);
   ui.busy = false;
-  if (action.type === 'endTurn') ui.revealed = !needsHandoff();
+  if (s.current !== whoBot) ui.revealed = !needsHandoff();
   renderGame();
 }
 

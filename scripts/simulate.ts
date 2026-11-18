@@ -28,7 +28,8 @@ function randomTurn(state: GameState) {
     if (!acts.length || nextRandom(rngBox) < 0.25) applyAction(state, { type: 'endTurn' });
     else applyAction(state, acts[Math.floor(nextRandom(rngBox) * acts.length)]);
   }
-  if (state.winner === null && state.current === who) applyAction(state, { type: 'endTurn' });
+  if (state.winner === null && state.current === who && state.mustDiscard === 0) applyAction(state, { type: 'endTurn' });
+  while (state.winner === null && state.current === who && state.mustDiscard > 0) applyAction(state, { type: 'discard', cardUid: state.players[who].hand[0].uid });
 }
 
 const games = Number(args[0] ?? 200);

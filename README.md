@@ -18,6 +18,7 @@ npm run simulate   # headless greedy-bot games: npm run simulate -- 200 4  (add 
 npx tsx scripts/difficulty.ts h2h 100        # Easy/Normal/Hard head-to-heads
 npx tsx scripts/difficulty.ts ffa3 90        # 3-player FFA, one bot of each difficulty
 npx tsx scripts/difficulty.ts dogpile 60 3   # 'human' seat (Normal bot) vs 3 AIs: Dogpile vs FFA
+node scripts/ui-smoke.mjs http://localhost:4173/Die-Build-Die/   # real-click UI test: move/attack/card in all 6 orders (needs playwright + Chrome)
 npm run build      # production build in dist/ (base path /Die-Build-Die/)
 ```
 

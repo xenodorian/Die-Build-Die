@@ -10,8 +10,8 @@ const setup = (n: number, seed = 42) => newGame(Array.from({ length: n }, () => 
 
 /** End the turn, discarding first if the hand is over the limit. */
 function pass(s: GameState) {
-  while (s.mustDiscard > 0) applyAction(s, { type: 'discard', cardUid: s.players[s.current].hand[0].uid });
   applyAction(s, { type: 'endTurn' });
+  while (s.mustDiscard > 0) applyAction(s, { type: 'discard', cardUid: s.players[s.current].hand[0].uid });
 }
 
 function place(s: GameState, owner: number, kind: Piece['kind'], q: number, r: number): Piece {
@@ -62,19 +62,26 @@ describe('drawing', () => {
     expect(s.round).toBe(2);
   });
 
-  it('drawing an 8th card forces a discard before anything else', () => {
+  it('an 8th card never blocks acting; you discard down to 7 when you end the turn', () => {
     const s = setup(2);
     expect(RULES.handLimit).toBe(7);
     applyAction(s, { type: 'endTurn' });
     applyAction(s, { type: 'endTurn' });
     expect(s.players[0].hand).toHaveLength(8);
+    expect(s.mustDiscard).toBe(0);
+    // you can still pick and use a unit
+    const pawn = s.pieces.find((p) => p.owner === 0)!;
+    applyAction(s, { type: 'selectUnit', unit: { kind: 'piece', id: pawn.id } });
+    applyAction(s, { type: 'move', pieceId: pawn.id, to: legalMoves(s, pawn)[0] });
+    // ending the turn asks for the discard first
+    applyAction(s, { type: 'endTurn' });
+    expect(s.current).toBe(0);
     expect(s.mustDiscard).toBe(1);
-    expect(() => applyAction(s, { type: 'endTurn' })).toThrow();
     expect(legalActions(s).every((a) => a.type === 'discard')).toBe(true);
     applyAction(s, { type: 'discard', cardUid: s.players[0].hand[0].uid });
     expect(s.players[0].hand).toHaveLength(7);
     expect(s.mustDiscard).toBe(0);
-    applyAction(s, { type: 'endTurn' });
+    expect(s.current).toBe(1); // the turn passed
   });
 });
 
@@ -913,5 +920,73 @@ describe('skulls and Necromancy', () => {
     expect(raised.kind).toBe('knight');
     expect(raised.owner).toBe(0);
     expect(killer).toBeDefined();
+  });
+});
+
+describe('one piece: move, attack and play a card in ANY order', () => {
+  type Step = 'move' | 'attack' | 'card';
+  const orders: Step[][] = [
+    ['move', 'attack', 'card'], ['move', 'card', 'attack'], ['attack', 'move', 'card'],
+    ['attack', 'card', 'move'], ['card', 'move', 'attack'], ['card', 'attack', 'move'],
+  ];
+  const scenarios = [
+    { kind: 'pawn' as const, dest: hex(-1, 0), e1: hex(1, 0), e2: hex(-2, 0), card: 'heal' as const, target: 'self' },
+    { kind: 'knight' as const, dest: hex(1, 2), e1: hex(-1, 0), e2: hex(1, 3), card: 'sharpen' as const, target: 'none' },
+    { kind: 'knight' as const, dest: hex(1, 2), e1: hex(-1, 0), e2: hex(1, 3), card: 'haste' as const, target: 'none' },
+    { kind: 'bishop' as const, dest: hex(1, 1), e1: hex(-1, 0), e2: hex(2, 1), card: 'firebolt' as const, target: 'e1' },
+  ];
+  for (const sc of scenarios) {
+    it.each(orders.map((o) => [o.join(' → '), o] as const))(`${sc.kind} + ${sc.card}: %s`, (_name, order) => {
+      const s = setup(2, 77);
+      s.pieces = [];
+      s.flag = { pos: hex(-4, 4), carrier: null };
+      const p = place(s, 0, sc.kind, 0, 0);
+      p.hp -= 2;
+      const e1 = place(s, 1, 'king', sc.e1.q, sc.e1.r);
+      const e2 = place(s, 1, 'king', sc.e2.q, sc.e2.r);
+      const me = s.players[0];
+      me.energy = 7;
+      me.hand = [{ uid: 501, id: sc.card }];
+      applyAction(s, { type: 'selectUnit', unit: { kind: 'piece', id: p.id } });
+      let moved = false;
+      for (const step of order) {
+        if (step === 'move') {
+          expect(legalMoves(s, p).some((h) => hexEq(h, sc.dest))).toBe(true);
+          applyAction(s, { type: 'move', pieceId: p.id, to: sc.dest });
+          moved = true;
+        } else if (step === 'attack') {
+          const foe = moved ? e2 : e1;
+          expect(legalAttacks(s, p).some((t) => t.kind === 'piece' && t.id === foe.id)).toBe(true);
+          applyAction(s, { type: 'attack', pieceId: p.id, target: { kind: 'piece', id: foe.id } });
+        } else {
+          expect(canPlayCard(s, 0, me.hand[0])).toBe(true);
+          const target = sc.target === 'self' ? { kind: 'piece' as const, id: p.id } : sc.target === 'e1' ? { kind: 'piece' as const, id: e1.id } : undefined;
+          applyAction(s, { type: 'playCard', cardUid: 501, target });
+        }
+        // the piece stays this turn's unit throughout
+        expect(s.active).toEqual({ kind: 'piece', id: p.id });
+        expect(s.current).toBe(0);
+      }
+      expect(s.cardsUsed).toBe(1);
+      expect(hexEq(p.pos, sc.dest)).toBe(true);
+      expect(e1.hp + e2.hp).toBeLessThan(40);
+    });
+  }
+
+  it('turn 1: the starting pawn can move off its base and then play Heal', () => {
+    const s = setup(2, 3);
+    const pawn = s.pieces.find((x) => x.owner === 0)!;
+    const me = s.players[0];
+    expect(me.energy).toBe(2);
+    me.hand.push({ uid: 600, id: 'heal' });
+    applyAction(s, { type: 'selectUnit', unit: { kind: 'piece', id: pawn.id } });
+    applyAction(s, { type: 'move', pieceId: pawn.id, to: legalMoves(s, pawn)[0] });
+    expect(canPlayCard(s, 0, me.hand.find((c) => c.uid === 600)!)).toBe(true);
+    applyAction(s, { type: 'playCard', cardUid: 600, target: { kind: 'piece', id: pawn.id } });
+    expect(me.energy).toBe(1);
+    // with 8 cards the end of turn asks for one discard, then passes
+    applyAction(s, { type: 'endTurn' });
+    while (s.mustDiscard > 0) applyAction(s, { type: 'discard', cardUid: me.hand[0].uid });
+    expect(s.current).toBe(1);
   });
 });

@@ -376,8 +376,8 @@ export function runBotTurn(s: GameState, apply: (a: Action) => void, maxActions 
   const who = s.current;
   for (let i = 0; i < maxActions && s.winner === null && s.current === who; i++) apply(chooseBotAction(s));
   if (s.winner === null && s.current === who) {
-    while (s.mustDiscard > 0) apply(bestDiscard(s));
-    apply({ type: 'endTurn' });
+    if (s.mustDiscard === 0) apply({ type: 'endTurn' });
+    while (s.winner === null && s.current === who && s.mustDiscard > 0) apply(bestDiscard(s));
   }
 }
 

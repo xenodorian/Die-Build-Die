@@ -27,7 +27,7 @@ Every number below lives in [`src/game/config.ts`](src/game/config.ts) — chang
 
 ## Your turn
 1. **Draw.** On your **first turn you draw 7 cards**; every later turn you **draw 1**.
-   - **Hand limit 7.** Whenever your hand goes above 7 (your draw, or Rally), you must **choose a card to discard** before doing anything else.
+   - **Hand limit 7.** 🟡 The limit is checked **when you end your turn**: if you hold more than 7, choose which cards to discard and then the turn passes. A big hand never stops you from acting, and playing a card first may mean you don't have to discard.
    - 🟡 You may also discard any card at any time on your turn (the ✕ on a card).
    - 🟡 When your deck is empty, your discard pile is shuffled into a new deck.
 2. **Energy.** You get **2 energy on your first turn, +1 each turn, up to 7**. Unspent energy is lost. Card costs run 1–7; **Fireball is the only 7**.
@@ -87,7 +87,7 @@ Every ability card belongs to a piece **class**, and only the right pieces can p
 | 🦺 Breastplate | Rook | Rook, Queen, King | 3 | 2 | Armor on this piece: **every** hit is reduced by 4 |
 | 🛡 Plate Armor | Rook | Rook, Queen, King | 5 | 1 | Armor on this piece: **every** hit is reduced by 6 |
 | 🏰 Fortify | Rook | Rook, Queen, King | 2 | 2 | Repair your base 6 HP (up to 20) |
-| 🎴 Rally | Rook | Rook, Queen, King | 1 | 2 | Draw 2 cards (then discard down to 7 if needed) |
+| 🎴 Rally | Rook | Rook, Queen, King | 1 | 2 | Draw 2 cards (discard down to 7 at the end of your turn if needed) |
 | ⬆️ Promote: Pawn → Knight | Queen | Queen, King | 🟡 2 | 🟡 2 | Turn a friendly **Pawn within 3 hexes** of this piece into a full-HP **Knight** |
 | ⬆️ Promote: Pawn → Bishop | Queen | Queen, King | 🟡 3 | 🟡 2 | Friendly **Pawn** within 3 → full-HP **Bishop** |
 | ⬆️ Promote: Pawn → Rook | Queen | Queen, King | 🟡 4 | 🟡 2 | Friendly **Pawn** within 3 → full-HP **Rook** |
@@ -144,8 +144,8 @@ Every ability card belongs to a piece **class**, and only the right pieces can p
 
 ## Playing the prototype
 - One human vs AI by default; extra pass-and-play humans can share the device. With 2+ humans, a hand-off screen hides each hand until its owner clicks "Show my hand" (can be turned off at setup).
-- **Pick your unit:** click a glowing piece, or click **"🏰 Use my base"** (or your empty base hex). Your unit has a gold ring; the rest of your pieces fade once it has acted.
-- **Act:** with a piece picked, white dots are moves and red hexes are attacks. Cards it can't play are greyed; hover any card to see which pieces can play it and why it's blocked.
+- **Pick your unit:** click a glowing piece, or click **"🏰 Use my base"** (or your empty base hex). You can also just **click a card**: until your unit has acted, clicking a card your current pick can't use switches to the unit that can (if several pieces could, they light up so you can choose). Cards you can reach this way have a dashed outline. Your unit has a gold ring; the rest of your pieces fade once it has acted.
+- **Act:** with a piece picked, white dots are moves and red hexes are attacks. **Move, attack and play one card in any order**; the piece stays picked until you end the turn. The side panel lists what it can still do (● available, ✓ done, ○ not possible right now, with the reason). Cards it can't play are greyed; hover any card to see which pieces can play it and why it's blocked.
 - **Fireball:** hover to preview the blast. **Cordon of Arrows:** click enemy pieces to assign arrows (a counter shows on each), then **Fire!** (or Reset).
-- **Over the hand limit:** your hand turns red; click the card(s) to discard.
+- **Over the hand limit when you end your turn:** your hand turns red; click the card(s) to discard and the turn passes.
 - **Esc** cancels a card, **Enter** ends the turn.
