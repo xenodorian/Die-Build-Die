@@ -9,6 +9,12 @@ describe('hex board', () => {
     expect(hexagonBoard(10).length).toBe(331);
   });
 
+  it('the game board is radius 5: 91 hexes, corners 5 from the centre flag', () => {
+    expect(RULES.boardRadius).toBe(5);
+    expect(hexagonBoard(RULES.boardRadius).length).toBe(91);
+    for (const c of corners(RULES.boardRadius)) expect(hexDistance(c, hex(0, 0))).toBe(5);
+  });
+
   it('every corner is exactly 10 hexes from the centre', () => {
     const cs = corners(10);
     expect(cs).toHaveLength(6);

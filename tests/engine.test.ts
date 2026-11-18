@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CARDS, PIECES, RULES, canClassBeUsedBy } from '../src/game/config';
 import {
-  CENTER, applyAction, canPlayCard, cardTargets, legalActions, flagCarrier, flagHex, legalAttacks, legalMoves, newGame, pieceAt, summonHexes,
+  CENTER, applyAction, canBeUnit, hasBuilder, canPlayCard, cardTargets, legalActions, flagCarrier, flagHex, legalAttacks, legalMoves, newGame, pieceAt, summonHexes,
 } from '../src/game/engine';
 import { corners, hex, hexDistance, hexEq } from '../src/game/hex';
 import type { GameState, Piece } from '../src/game/types';
@@ -31,7 +31,7 @@ describe('setup', () => {
     const used = new Set<number>();
     for (const p of s.players) {
       expect(hexEq(p.base, cs[p.corner])).toBe(true);
-      expect(hexDistance(p.base, CENTER)).toBe(10);
+      expect(hexDistance(p.base, CENTER)).toBe(RULES.boardRadius);
       expect(p.baseHp).toBe(RULES.baseHp);
       used.add(p.corner);
       const pawns = s.pieces.filter((x) => x.owner === p.index);
@@ -218,32 +218,36 @@ describe('cards and winning', () => {
     expect(s.players[0].energy).toBe(7);
   });
 
-  it('Fireball must be played by a Bishop/Queen/King and targets hexes within 10 of it', () => {
+  it('Fireball must be played by a Bishop/Queen/King and targets hexes within 5 of it', () => {
     const s = setup(2);
     s.pieces = [];
     const me = s.players[0];
     me.hand = [{ uid: 777, id: 'fireball' }];
     me.energy = 7;
     expect(canPlayCard(s, 0, me.hand[0])).toBe(false);
-    const r = place(s, 0, 'rook', 0, -8);
+    const r = place(s, 0, 'rook', 0, -4);
     applyAction(s, { type: 'selectUnit', unit: { kind: 'piece', id: r.id } });
     expect(canPlayCard(s, 0, me.hand[0])).toBe(false); // Rook can't use Bishop cards
-    const b = place(s, 0, 'bishop', 0, -5);
+    const b = place(s, 0, 'bishop', 0, -3);
     applyAction(s, { type: 'selectUnit', unit: { kind: 'piece', id: b.id } });
     expect(canPlayCard(s, 0, me.hand[0])).toBe(true);
     const targets = cardTargets(s, 0, CARDS.fireball, b);
     expect(targets.length).toBeGreaterThan(0);
-    for (const t of targets) expect(t.kind === 'hex' && hexDistance(t.hex, b.pos) <= 10).toBe(true);
+    for (const t of targets) expect(t.kind === 'hex' && hexDistance(t.hex, b.pos) <= 5).toBe(true);
+    expect(CARDS.fireball.range).toBe(5);
+    expect(CARDS.fireball.radius).toBe(2);
+    // a hex 5 away is fine, 6 away is not
+    expect(targets.some((t) => t.kind === 'hex' && hexDistance(t.hex, b.pos) === 5)).toBe(true);
   });
 
-  it('Fireball hits every piece (friend and foe) and unguarded bases within 4', () => {
+  it('Fireball hits every piece (friend and foe) and unguarded bases within 2', () => {
     const s = setup(2, 9);
     s.pieces = [];
     const me = s.players[0];
-    const caster = place(s, 0, 'queen', 0, -9); // 5 away from blast centre: safe
-    const friend = place(s, 0, 'king', 0, -1);
-    const foe = place(s, 1, 'king', 2, 2);
-    const far = place(s, 1, 'pawn', 0, 8);
+    const caster = place(s, 0, 'queen', 0, -3); // 3 away from blast centre: safe
+    const friend = place(s, 0, 'king', 0, -2); // exactly 2 away: hit
+    const foe = place(s, 1, 'king', 1, 1);
+    const far = place(s, 1, 'pawn', 0, 3); // 3 away: safe
     me.hand = [{ uid: 778, id: 'fireball' }];
     me.energy = 7;
     applyAction(s, { type: 'selectUnit', unit: { kind: 'piece', id: caster.id } });
@@ -264,7 +268,7 @@ describe('cards and winning', () => {
     const s = setup(2, 11);
     const gold = s.players[1];
     s.pieces = s.pieces.filter((p) => p.owner === 1); // Gold pawn on its base
-    const b = place(s, 0, 'bishop', 0, 0);
+    const b = place(s, 0, 'bishop', 0, 0); // base is 5 away: in range
     s.players[0].hand = [{ uid: 779, id: 'fireball' }];
     s.players[0].energy = 7;
     applyAction(s, { type: 'selectUnit', unit: { kind: 'piece', id: b.id } });
@@ -419,10 +423,10 @@ describe('one unit per turn', () => {
     const near = place(s, 0, 'pawn', 0, -2);
     const far = place(s, 0, 'pawn', 0, 2);
     const me = s.players[0];
-    me.hand = [{ uid: 1, id: 'promote' }];
+    me.hand = [{ uid: 1, id: 'promote_pawn_knight' }];
     me.energy = 2;
     applyAction(s, { type: 'selectUnit', unit: { kind: 'piece', id: q.id } });
-    expect(cardTargets(s, 0, CARDS.promote, q)).toEqual([{ kind: 'piece', id: near.id }]);
+    expect(cardTargets(s, 0, CARDS.promote_pawn_knight, q)).toEqual([{ kind: 'piece', id: near.id }]);
     applyAction(s, { type: 'playCard', cardUid: 1, target: { kind: 'piece', id: near.id } });
     expect(near.kind).toBe('knight');
     expect(far.kind).toBe('pawn');
@@ -507,7 +511,7 @@ describe('armor', () => {
     expect(r.armor).toBe('breastplate');
   });
 
-  it('Gambesson soaks 4 damage in total, then is gone', () => {
+  it('Gambeson soaks 4 damage in total, then is gone', () => {
     const s = setup(2, 6);
     s.pieces = [];
     const r = place(s, 0, 'rook', 0, -5);
@@ -533,7 +537,7 @@ describe('armor', () => {
   it('Armor Rend strips armor and shield from an enemy piece within 4', () => {
     const s = setup(2);
     s.pieces = [];
-    const b = place(s, 0, 'bishop', 0, -5);
+    const b = place(s, 0, 'bishop', 0, -3);
     const foe = place(s, 1, 'rook', 0, -1);
     const far = place(s, 1, 'rook', 0, 2);
     foe.armor = 'plate';
@@ -546,5 +550,368 @@ describe('armor', () => {
     applyAction(s, { type: 'playCard', cardUid: 1, target: { kind: 'piece', id: foe.id } });
     expect(foe.armor).toBeNull();
     expect(foe.shield).toBe(0);
+  });
+});
+
+describe('difficulty and Dogpile', () => {
+  const human = { isBot: false };
+  const ai = (difficulty: 'easy' | 'normal' | 'hard' = 'normal') => ({ isBot: true, difficulty });
+
+  it('difficulty is stored per player and defaults to normal', () => {
+    const s = newGame([human, ai('hard'), { isBot: true }], 1).state;
+    expect(s.players.map((p) => p.difficulty)).toEqual(['normal', 'hard', 'normal']);
+  });
+
+  it('Dogpile only switches on with a human and at least two AIs', () => {
+    expect(newGame([human, ai(), ai()], 1, 'dogpile').state.mode).toBe('dogpile');
+    expect(newGame([human, ai()], 1, 'dogpile').state.mode).toBe('ffa');
+    expect(newGame([ai(), ai(), ai()], 1, 'dogpile').state.mode).toBe('ffa');
+    expect(newGame([human, ai(), ai()], 1).state.mode).toBe('ffa');
+  });
+
+  function killHumanBase(s: GameState) {
+    const base = s.players[0].base;
+    s.pieces = [];
+    s.current = 1;
+    s.active = null;
+    s.turnActed = false;
+    const atk = place(s, 1, 'king', base.q + (base.q > 0 ? -1 : 1), base.r);
+    if (hexDistance(atk.pos, base) !== 1) atk.pos = hex(base.q, base.r + (base.r > 0 ? -1 : 1));
+    s.players[0].baseHp = 1;
+    applyAction(s, { type: 'attack', pieceId: atk.id, target: { kind: 'base', owner: 0 } });
+  }
+
+  it('in Dogpile the game ends as a loss as soon as the only human is out', () => {
+    const s = newGame([human, ai(), ai(), ai()], 3, 'dogpile').state;
+    killHumanBase(s);
+    expect(s.players[0].alive).toBe(false);
+    expect(s.winner).toBe(1);
+    expect(s.players[s.winner!].isBot).toBe(true);
+    expect(s.winReason).toMatch(/Dogpile/);
+  });
+
+  it('in Free for All the AIs play on after the human is out', () => {
+    const s = newGame([human, ai(), ai(), ai()], 3, 'ffa').state;
+    killHumanBase(s);
+    expect(s.players[0].alive).toBe(false);
+    expect(s.winner).toBeNull();
+  });
+});
+
+describe('Shackles', () => {
+  function knightWithShackles(s: GameState) {
+    s.pieces = [];
+    const k = place(s, 0, 'knight', 0, 0);
+    s.players[0].hand = [{ uid: 4242, id: 'shackles' }];
+    s.players[0].energy = 2;
+    applyAction(s, { type: 'selectUnit', unit: { kind: 'piece', id: k.id } });
+    applyAction(s, { type: 'playCard', cardUid: 4242 });
+    return k;
+  }
+
+  it('is a 2-cost Knight card (Knight, King), 2 copies', () => {
+    expect(CARDS.shackles.cost).toBe(2);
+    expect(CARDS.shackles.cls).toBe('knight');
+    expect(CARDS.shackles.copies).toBe(2);
+    expect(canClassBeUsedBy('knight', 'king')).toBe(true);
+    expect(canClassBeUsedBy('knight', 'bishop')).toBe(false);
+  });
+
+  it('lets the piece move onto a weaker enemy and capture it (one use)', () => {
+    const s = setup(2);
+    const k = knightWithShackles(s);
+    expect(k.shackles).toBe(true);
+    const weak = place(s, 1, 'pawn', 1, 2); // knight jump (1,2) from the centre
+    const strong = place(s, 1, 'bishop', 2, 1); // 8 HP > knight's 6
+    weak.hp = 4;
+    const moves = legalMoves(s, k);
+    expect(moves.some((h) => hexEq(h, weak.pos))).toBe(true);
+    expect(moves.some((h) => hexEq(h, strong.pos))).toBe(false);
+    applyAction(s, { type: 'move', pieceId: k.id, to: hex(1, 2) });
+    expect(hexEq(k.pos, hex(1, 2))).toBe(true);
+    expect(s.pieces.includes(weak)).toBe(false);
+    expect(s.players[0].prisoners.map((p) => p.id)).toEqual([weak.id]);
+    expect(k.shackles).toBe(false);
+  });
+
+  it('needs strictly less HP', () => {
+    const s = setup(2);
+    const k = knightWithShackles(s);
+    const equal = place(s, 1, 'knight', 1, 2);
+    expect(equal.hp).toBe(k.hp);
+    expect(legalMoves(s, k).some((h) => hexEq(h, equal.pos))).toBe(false);
+  });
+
+  it('a captured flag carrier drops the flag and the captor picks it up', () => {
+    const s = setup(2);
+    const k = knightWithShackles(s);
+    const carrier = place(s, 1, 'pawn', 1, 2);
+    s.flag = { pos: null, carrier: carrier.id };
+    applyAction(s, { type: 'move', pieceId: k.id, to: hex(1, 2) });
+    expect(s.flag.carrier).toBe(k.id);
+  });
+
+  it('prisoners are released next to their own base when the captor is knocked out', () => {
+    const s = newGame([{}, {}, {}], 5).state;
+    const k = knightWithShackles(s);
+    const victim = place(s, 2, 'pawn', 1, 2);
+    applyAction(s, { type: 'move', pieceId: k.id, to: hex(1, 2) });
+    expect(s.players[0].prisoners).toHaveLength(1);
+    // player 1 destroys player 0's (unguarded) base
+    s.pieces = s.pieces.filter((p) => p.owner !== 0);
+    s.current = 1;
+    s.active = null;
+    s.turnActed = false;
+    const base0 = s.players[0].base;
+    const atkPos = summonHexes(s, 0).find((h) => !hexEq(h, base0))!;
+    const atk = place(s, 1, 'king', atkPos.q, atkPos.r);
+    s.players[0].baseHp = 1;
+    applyAction(s, { type: 'attack', pieceId: atk.id, target: { kind: 'base', owner: 0 } });
+    expect(s.players[0].alive).toBe(false);
+    expect(s.winner).toBeNull();
+    expect(s.players[0].prisoners).toHaveLength(0);
+    const back = s.pieces.find((p) => p.id === victim.id)!;
+    expect(back).toBeDefined();
+    expect(hexDistance(back.pos, s.players[2].base)).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('ruined bases and rebuilding', () => {
+  /** Player 1 smashes player 0's unguarded base down to 0. */
+  function smash(s: GameState, victim = 0, attacker = 1) {
+    s.current = attacker;
+    s.active = null;
+    s.turnActed = false;
+    const base = s.players[victim].base;
+    const spot = summonHexes(s, victim).find((h) => !hexEq(h, base) && !pieceAt(s, h))!;
+    const atk = place(s, attacker, 'king', spot.q, spot.r);
+    s.players[victim].baseHp = 1;
+    applyAction(s, { type: 'attack', pieceId: atk.id, target: { kind: 'base', owner: victim } });
+    return atk;
+  }
+
+  it('a player with a Rook or King keeps playing with a ruined base', () => {
+    const s = newGame([{}, {}, {}], 8).state;
+    s.pieces = [];
+    place(s, 0, 'rook', 0, 0);
+    smash(s);
+    expect(s.players[0].alive).toBe(true);
+    expect(s.players[0].ruined).toBe(true);
+    expect(s.players[0].baseHp).toBe(0);
+    expect(s.winner).toBeNull();
+  });
+
+  it('without a King or Rook the player is out', () => {
+    const s = newGame([{}, {}, {}], 8).state;
+    s.pieces = [];
+    place(s, 0, 'queen', 0, 0);
+    smash(s);
+    expect(s.players[0].alive).toBe(false);
+  });
+
+  it('the game ends when only one ACTIVE base is left, even if someone is rebuilding', () => {
+    const s = newGame([{}, {}], 8).state;
+    s.pieces = [];
+    place(s, 0, 'king', 0, 0);
+    smash(s);
+    expect(s.players[0].alive).toBe(true);
+    expect(s.winner).toBe(1);
+    expect(s.winReason).toBe('last active base standing');
+  });
+
+  it('a ruined base cannot be picked, attacked or score the flag; a King/Rook on it rebuilds 1d8 a turn', () => {
+    const s = newGame([{}, {}, {}], 8).state;
+    s.pieces = [];
+    const rook = place(s, 0, 'rook', 0, 0);
+    smash(s);
+    const me = s.players[0];
+    // back to player 0
+    s.current = 0;
+    s.active = null;
+    s.turnActed = false;
+    expect(canBeUnit(s, { kind: 'base' })).toBe(false);
+    rook.pos = { ...me.base };
+    s.flag = { pos: null, carrier: rook.id };
+    expect(s.winner).toBeNull();
+    let guard = 0;
+    while (me.ruined && guard++ < 40) {
+      const before = me.baseHp;
+      expect(legalActions(s).some((a) => a.type === 'rebuild')).toBe(true);
+      applyAction(s, { type: 'rebuild', pieceId: rook.id });
+      expect(me.baseHp - before).toBeGreaterThanOrEqual(1);
+      expect(me.baseHp - before).toBeLessThanOrEqual(8);
+      expect(legalActions(s).some((a) => a.type === 'rebuild')).toBe(false); // once per turn
+      if (me.ruined) {
+        s.active = null;
+        s.turnActed = false;
+        rook.attacksLeft = 1;
+        rook.movesLeft = 1;
+      }
+    }
+    expect(me.ruined).toBe(false);
+    expect(me.baseHp).toBe(RULES.baseHp);
+    // the Rook was carrying the flag on its base: the rebuilt base scores it
+    expect(s.winner).toBe(0);
+  });
+
+  it('losing the last King/Rook while ruined knocks the player out', () => {
+    const s = newGame([{}, {}, {}], 8).state;
+    s.pieces = [];
+    const rook = place(s, 0, 'rook', 0, 0);
+    const atk = smash(s);
+    expect(s.players[0].ruined).toBe(true);
+    rook.hp = 1;
+    rook.pos = hex(atk.pos.q, atk.pos.r);
+    atk.pos = hex(0, 0);
+    rook.pos = hex(1, 0);
+    s.active = null;
+    s.turnActed = false;
+    atk.attacksLeft = 1;
+    applyAction(s, { type: 'attack', pieceId: atk.id, target: { kind: 'piece', id: rook.id } });
+    expect(s.players[0].alive).toBe(false);
+  });
+});
+
+describe('promotion cards', () => {
+  const table: [string, Piece['kind'], Piece['kind'], number][] = [
+    ['promote_pawn_knight', 'pawn', 'knight', 2],
+    ['promote_pawn_bishop', 'pawn', 'bishop', 3],
+    ['promote_pawn_rook', 'pawn', 'rook', 4],
+    ['promote_bishop_queen', 'bishop', 'queen', 5],
+    ['promote_knight_king', 'knight', 'king', 6],
+    ['promote_rook_king', 'rook', 'king', 6],
+  ];
+  it('the old single Promote card is gone', () => {
+    expect((CARDS as Record<string, unknown>).promote).toBeUndefined();
+  });
+  it.each(table)('%s turns a %s into a full-HP %s (cost %i), keeping flag and gear', (id, from, to, cost) => {
+    const s = setup(2);
+    s.pieces = [];
+    const q = place(s, 0, 'queen', 0, -3);
+    const t = place(s, 0, from, 0, -1);
+    const wrong = place(s, 0, from === 'pawn' ? 'knight' : 'pawn', 1, -2);
+    t.hp = 1;
+    t.shield = 3;
+    t.armor = 'breastplate';
+    t.movesLeft = 1;
+    s.flag = { pos: null, carrier: t.id };
+    const def = CARDS[id as keyof typeof CARDS];
+    expect(def.cost).toBe(cost);
+    expect(def.cls).toBe('queen');
+    const me = s.players[0];
+    me.hand = [{ uid: 1, id: def.id }];
+    me.energy = 7;
+    applyAction(s, { type: 'selectUnit', unit: { kind: 'piece', id: q.id } });
+    const targets = cardTargets(s, 0, def, q);
+    expect(targets).toEqual([{ kind: 'piece', id: t.id }]);
+    expect(targets.some((x) => x.kind === 'piece' && x.id === wrong.id)).toBe(false);
+    applyAction(s, { type: 'playCard', cardUid: 1, target: { kind: 'piece', id: t.id } });
+    expect(t.kind).toBe(to);
+    expect(t.hp).toBe(PIECES[to].hp);
+    expect(t.maxHp).toBe(PIECES[to].hp);
+    expect(t.shield).toBe(3);
+    expect(t.armor).toBe('breastplate');
+    expect(s.flag.carrier).toBe(t.id);
+    expect(t.movesLeft).toBe(1);
+  });
+  it('a piece promoted to King counts as a builder for a ruined base', () => {
+    const s = newGame([{}, {}, {}], 8).state;
+    s.pieces = [];
+    const q = place(s, 0, 'queen', 0, -3);
+    const k = place(s, 0, 'knight', 0, -1);
+    const me = s.players[0];
+    me.hand = [{ uid: 1, id: 'promote_knight_king' }];
+    me.energy = 7;
+    applyAction(s, { type: 'selectUnit', unit: { kind: 'piece', id: q.id } });
+    applyAction(s, { type: 'playCard', cardUid: 1, target: { kind: 'piece', id: k.id } });
+    expect(hasBuilder(s, 0)).toBe(true);
+  });
+});
+
+describe('skulls and Necromancy', () => {
+  function killAt(s: GameState, victim: Piece, killerOwner: number) {
+    s.current = killerOwner;
+    s.active = null;
+    s.turnActed = false;
+    const k = place(s, killerOwner, 'king', victim.pos.q + 1, victim.pos.r);
+    victim.hp = 1;
+    applyAction(s, { type: 'attack', pieceId: k.id, target: { kind: 'piece', id: victim.id } });
+    return k;
+  }
+
+  it('a piece that dies leaves a skull (owner + type); pieces may stand on it', () => {
+    const s = setup(2);
+    s.pieces = [];
+    const v = place(s, 0, 'rook', 0, 1);
+    const k = killAt(s, v, 1);
+    expect(s.pieces.includes(v)).toBe(false);
+    expect(s.corpses).toHaveLength(1);
+    expect(s.corpses[0]).toMatchObject({ owner: 0, kind: 'rook', pos: hex(0, 1) });
+    // a piece can step onto the skull hex
+    s.active = null;
+    s.turnActed = false;
+    k.movesLeft = 1;
+    expect(legalMoves(s, k).some((h) => hexEq(h, hex(0, 1)))).toBe(true);
+  });
+
+  it('captured prisoners leave no skull', () => {
+    const s = setup(2);
+    s.pieces = [];
+    const k = place(s, 0, 'knight', 0, 0);
+    k.shackles = true;
+    place(s, 1, 'pawn', 1, 2);
+    applyAction(s, { type: 'move', pieceId: k.id, to: hex(1, 2) });
+    expect(s.corpses).toHaveLength(0);
+  });
+
+  it('Necromancy (Bishop class, cost 3) raises an adjacent friendly corpse at full HP, unable to act this turn', () => {
+    const s = setup(2);
+    s.pieces = [];
+    const v = place(s, 0, 'rook', 0, 1);
+    killAt(s, v, 1);
+    s.pieces = s.pieces.filter((p) => p.owner !== 1);
+    s.current = 0;
+    s.active = null;
+    s.turnActed = false;
+    const b = place(s, 0, 'bishop', 0, 0);
+    const me = s.players[0];
+    me.hand = [{ uid: 31, id: 'necromancy' }];
+    me.energy = 3;
+    expect(CARDS.necromancy.cost).toBe(3);
+    expect(CARDS.necromancy.cls).toBe('bishop');
+    applyAction(s, { type: 'selectUnit', unit: { kind: 'piece', id: b.id } });
+    expect(cardTargets(s, 0, CARDS.necromancy, b)).toEqual([{ kind: 'hex', hex: hex(0, 1) }]);
+    applyAction(s, { type: 'playCard', cardUid: 31, target: { kind: 'hex', hex: hex(0, 1) } });
+    const raised = pieceAt(s, hex(0, 1))!;
+    expect(raised.kind).toBe('rook');
+    expect(raised.owner).toBe(0);
+    expect(raised.hp).toBe(PIECES.rook.hp);
+    expect(raised.movesLeft).toBe(0);
+    expect(raised.attacksLeft).toBe(0);
+    expect(s.corpses).toHaveLength(0);
+  });
+
+  it("an enemy corpse rises on the necromancer's side; occupied or far skulls are not targets", () => {
+    const s = setup(2);
+    s.pieces = [];
+    const v = place(s, 1, 'knight', 0, 1);
+    const killer = killAt(s, v, 0);
+    s.pieces = [];
+    s.active = null;
+    s.turnActed = false;
+    const q = place(s, 0, 'queen', 0, 0);
+    s.corpses.push({ id: 999, owner: 1, kind: 'pawn', pos: hex(0, -3), round: 1 }); // too far
+    const me = s.players[0];
+    me.hand = [{ uid: 32, id: 'necromancy' }];
+    me.energy = 3;
+    applyAction(s, { type: 'selectUnit', unit: { kind: 'piece', id: q.id } });
+    const blocker = place(s, 0, 'pawn', 0, 1);
+    expect(cardTargets(s, 0, CARDS.necromancy, q)).toEqual([]);
+    s.pieces = s.pieces.filter((p) => p !== blocker);
+    applyAction(s, { type: 'playCard', cardUid: 32, target: { kind: 'hex', hex: hex(0, 1) } });
+    const raised = pieceAt(s, hex(0, 1))!;
+    expect(raised.kind).toBe('knight');
+    expect(raised.owner).toBe(0);
+    expect(killer).toBeDefined();
   });
 });

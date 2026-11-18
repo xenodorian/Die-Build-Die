@@ -4,18 +4,21 @@ import {
   type Hex,
 } from './hex';
 import { rollDie, shuffle } from './rng';
-import type { Action, Card, GameEvent, GameState, Piece, Player, PlayerSetup, Target, Unit } from './types';
+import type { Action, Card, GameEvent, GameMode, GameState, Piece, Player, PlayerSetup, Target, Unit } from './types';
 
 export const CENTER: Hex = hex(0, 0);
 
 // ---------------------------------------------------------------- setup
 
-export function newGame(setups: PlayerSetup[], seed = Date.now()): { state: GameState; events: GameEvent[] } {
+export function newGame(setups: PlayerSetup[], seed = Date.now(), mode: GameMode = 'ffa'): { state: GameState; events: GameEvent[] } {
   const n = setups.length;
   if (n < RULES.minPlayers || n > RULES.maxPlayers) throw new Error(`Need ${RULES.minPlayers}-${RULES.maxPlayers} players`);
   const boardCorners = corners(RULES.boardRadius);
   const seats = RULES.seatCorners[n];
+  const humans = setups.filter((p) => !p.isBot).length;
   const state: GameState = {
+    // Dogpile only makes sense with at least one human and at least two AIs.
+    mode: mode === 'dogpile' && humans >= 1 && n - humans >= 2 ? 'dogpile' : 'ffa',
     players: [],
     pieces: [],
     current: 0,
@@ -27,6 +30,7 @@ export function newGame(setups: PlayerSetup[], seed = Date.now()): { state: Game
     cardsUsed: 0,
     mustDiscard: 0,
     flag: { pos: { ...RULES.flagStart }, carrier: null },
+    corpses: [],
     winner: null,
     winReason: null,
     log: [],
@@ -42,11 +46,14 @@ export function newGame(setups: PlayerSetup[], seed = Date.now()): { state: Game
       baseHp: RULES.baseHp,
       alive: true,
       isBot: !!s.isBot,
+      difficulty: s.difficulty ?? 'normal',
       deck: [],
       hand: [],
       discard: [],
       energy: 0,
       turnsTaken: 0,
+      prisoners: [],
+      ruined: false,
     };
     player.deck = shuffle(state, buildDeckList().map((id) => ({ uid: state.nextId++, id })));
     state.players.push(player);
@@ -105,7 +112,7 @@ export function canBeUnit(s: GameState, unit: Unit): boolean {
   if (s.winner !== null || s.mustDiscard > 0) return false;
   if (s.active && sameUnit(s.active, unit)) return true;
   if (s.turnActed) return false; // locked in
-  if (unit.kind === 'base') return currentPlayer(s).alive;
+  if (unit.kind === 'base') return currentPlayer(s).alive && !currentPlayer(s).ruined;
   const p = pieceById(s, unit.id);
   return !!p && p.owner === s.current && (p.movesLeft > 0 || p.attacksLeft > 0);
 }
@@ -120,6 +127,21 @@ export function selectableUnits(s: GameState): Unit[] {
 export function legalMoves(s: GameState, piece: Piece): Hex[] {
   if (s.winner !== null || piece.owner !== s.current || piece.movesLeft <= 0) return [];
   if (!canBeUnit(s, { kind: 'piece', id: piece.id })) return [];
+  return reachableHexes(s, piece);
+}
+
+/** Hexes this piece could move to on its owner's turn (geometry + blocking only; ignores whose turn it is). */
+/** Shackles: `piece` may move onto `h` if an enemy piece with less current HP stands there. */
+export function canCapture(s: GameState, piece: Piece, h: Hex): boolean {
+  if (!piece.shackles || !inBoard(h, RULES.boardRadius)) return false;
+  const v = pieceAt(s, h);
+  const base = baseAt(s, h);
+  // 🟡 You can't capture a piece standing on an enemy base: the captor could not stand there.
+  if (base && base.index !== piece.owner) return false;
+  return !!v && v.owner !== piece.owner && v.hp < piece.hp;
+}
+
+export function reachableHexes(s: GameState, piece: Piece): Hex[] {
   const rule = PIECES[piece.kind].move;
   const out: Hex[] = [];
   const add = (h: Hex) => {
@@ -129,7 +151,10 @@ export function legalMoves(s: GameState, piece: Piece): Hex[] {
     for (const d of dirs) {
       for (let k = 1; k <= max; k++) {
         const h = hexAdd(piece.pos, hexScale(d, k));
-        if (!isOpenFor(s, h, piece.owner)) break;
+        if (!isOpenFor(s, h, piece.owner)) {
+          if (canCapture(s, piece, h)) add(h);
+          break;
+        }
         add(h);
       }
     }
@@ -138,7 +163,7 @@ export function legalMoves(s: GameState, piece: Piece): Hex[] {
   slide(DIAGONALS, rule.diagonal);
   if (rule.knightJump) for (const j of KNIGHT_JUMPS) {
     const h = hexAdd(piece.pos, j);
-    if (isOpenFor(s, h, piece.owner)) add(h);
+    if (isOpenFor(s, h, piece.owner) || canCapture(s, piece, h)) add(h);
   }
   return out;
 }
@@ -151,7 +176,7 @@ export function garrisonOf(s: GameState, player: Player): Piece | undefined {
 }
 
 function baseTargetable(_s: GameState, player: Player): boolean {
-  return player.alive;
+  return player.alive && !player.ruined;
 }
 
 /** Where the flag is right now (the carrier's hex, or where it lies). */
@@ -214,9 +239,13 @@ export function cardTargets(s: GameState, owner: number, def: CardDef, actor?: P
       return [self];
     case 'selfOrAdjacentFriend':
       return [self, ...s.pieces.filter((p) => p.owner === owner && hexDistance(p.pos, actor.pos) === 1).map((p): Target => ({ kind: 'piece', id: p.id }))];
-    case 'friendlyPawnInRange':
+    case 'adjacentCorpse':
+      return neighbors(actor.pos)
+        .filter((h) => s.corpses.some((c) => hexEq(c.pos, h)) && isOpenFor(s, h, owner))
+        .map((h) => ({ kind: 'hex', hex: h }));
+    case 'friendlyKindInRange':
       return s.pieces
-        .filter((p) => p.owner === owner && p.kind === 'pawn' && p.id !== actor.id && hexDistance(p.pos, actor.pos) <= (def.range ?? 1))
+        .filter((p) => p.owner === owner && p.kind === def.promote?.from && p.id !== actor.id && hexDistance(p.pos, actor.pos) <= (def.range ?? 1))
         .map((p) => ({ kind: 'piece', id: p.id }));
     case 'enemyInRange':
       return enemiesNear(s, [actor.pos], def.range ?? 1, owner);
@@ -261,6 +290,7 @@ export function cardBlockReason(s: GameState, owner: number, card: Card): string
   if (!canClassBeUsedBy(def.cls, actor.kind)) return `${cardUsersText(def)} — not a ${PIECES[actor.kind].name}`;
   if (s.cardsUsed >= RULES.cardsPerPieceTurn) return `A piece may play ${RULES.cardsPerPieceTurn} card per turn`;
   if (me.energy < def.cost) return `Needs ${def.cost} energy`;
+  if (def.id === 'fortify' && me.ruined) return 'Your base is in ruins: a King or Rook must rebuild it';
   if (def.id === 'fortify' && me.baseHp >= RULES.baseHp) return 'Your base is at full HP';
   if (def.targeting !== 'none' && cardTargets(s, owner, def, actor).length === 0) return 'No valid target';
   return null;
@@ -295,6 +325,7 @@ export function legalActions(s: GameState): Action[] {
   for (const p of s.pieces.filter((x) => x.owner === me)) {
     for (const to of legalMoves(s, p)) out.push({ type: 'move', pieceId: p.id, to });
     for (const t of legalAttacks(s, p)) out.push({ type: 'attack', pieceId: p.id, target: t });
+    if (canRebuild(s, p)) out.push({ type: 'rebuild', pieceId: p.id });
   }
   out.push({ type: 'endTurn' });
   return out;
@@ -400,6 +431,35 @@ function removePiece(s: GameState, events: GameEvent[], p: Piece) {
   }
 }
 
+/** Shackles capture: the victim leaves the board (not killed) and is held at the captor's base. */
+function capturePiece(s: GameState, events: GameEvent[], captor: Piece, victim: Piece) {
+  const me = s.players[captor.owner];
+  removePiece(s, events, victim); // a captured carrier drops the flag right here
+  captor.shackles = false;
+  me.prisoners.push(victim);
+  log(s, events, `  ⛓ ${me.name}'s ${PIECES[captor.kind].name} captures ${s.players[victim.owner].name}'s ${PIECES[victim.kind].name}! It is held prisoner at ${me.name}'s base.`, me.index);
+  events.push({ type: 'captured', pieceId: victim.id, by: me.index });
+}
+
+/** The captor's base fell: prisoners go home (next to their own base) if their owner is still in. */
+function releasePrisoners(s: GameState, events: GameEvent[], captor: Player) {
+  for (const pr of captor.prisoners) {
+    const owner = s.players[pr.owner];
+    const spot = owner.alive ? summonHexes(s, owner.index)[0] : undefined;
+    if (!spot) {
+      log(s, events, `  ⛓ ${owner.name}'s captured ${PIECES[pr.kind].name} is lost.`, owner.index);
+      continue;
+    }
+    pr.pos = spot;
+    pr.movesLeft = 0;
+    pr.attacksLeft = 0;
+    s.pieces.push(pr);
+    log(s, events, `  ⛓ ${owner.name}'s ${PIECES[pr.kind].name} is freed and returns home.`, owner.index);
+    tryPickUp(s, events, pr);
+  }
+  captor.prisoners = [];
+}
+
 /** Give the flag to `p` if it ended its move on the flag's hex. */
 function tryPickUp(s: GameState, events: GameEvent[], p: Piece) {
   if (s.flag.carrier !== null || !s.flag.pos) return;
@@ -410,19 +470,72 @@ function tryPickUp(s: GameState, events: GameEvent[], p: Piece) {
 }
 
 function checkFlagWin(s: GameState, events: GameEvent[], p: Piece) {
-  if (s.flag.carrier === p.id && hexEq(p.pos, s.players[p.owner].base)) {
+  // 🟡 A ruined base can't receive the flag until it is rebuilt.
+  if (s.flag.carrier === p.id && hexEq(p.pos, s.players[p.owner].base) && !s.players[p.owner].ruined) {
     declareWin(s, events, p.owner, `captured the flag with a ${PIECES[p.kind].name}`);
   }
 }
 
-function eliminate(s: GameState, events: GameEvent[], who: Player) {
+function eliminate(s: GameState, events: GameEvent[], who: Player, why = 'base is destroyed') {
   who.alive = false;
   who.baseHp = 0;
   for (const p of s.pieces.filter((x) => x.owner === who.index)) removePiece(s, events, p);
-  log(s, events, `💥 ${who.name}'s base is destroyed. ${who.name} is out!`, who.index);
+  log(s, events, `💥 ${who.name}'s ${why}. ${who.name} is out!`, who.index);
   events.push({ type: 'eliminated', player: who.index });
+  // Prisoners of a player who is out are gone for good.
+  for (const pl of s.players) pl.prisoners = pl.prisoners.filter((x) => x.owner !== who.index);
+  checkGameEnd(s, events);
+  if (s.winner === null) releasePrisoners(s, events, who);
+}
+
+/** Kings and Rooks can rebuild a ruined base. */
+export const isBuilder = (p: Piece) => p.kind === 'king' || p.kind === 'rook';
+export const hasBuilder = (s: GameState, owner: number) => s.pieces.some((p) => p.owner === owner && isBuilder(p));
+
+/** A base hit 0 HP: out, unless a King or Rook is on the field to rebuild it (then it's a ruin). */
+function destroyBase(s: GameState, events: GameEvent[], who: Player) {
+  if (!hasBuilder(s, who.index)) {
+    eliminate(s, events, who);
+    return;
+  }
+  who.ruined = true;
+  who.baseHp = 0;
+  log(s, events, `🏚 ${who.name}'s base is destroyed, but a King or Rook can rebuild it. ${who.name} stays in the game.`, who.index);
+  events.push({ type: 'baseRuined', player: who.index });
+  checkGameEnd(s, events);
+  if (s.winner === null) releasePrisoners(s, events, who);
+}
+
+/** Win by elimination: only one player still has an ACTIVE (not ruined) base. */
+function checkGameEnd(s: GameState, events: GameEvent[]) {
+  if (s.winner !== null) return;
   const alive = s.players.filter((p) => p.alive);
-  if (RULES.lastBaseStandingWins && alive.length === 1) declareWin(s, events, alive[0].index, 'last base standing');
+  const active = alive.filter((p) => !p.ruined);
+  if (RULES.lastBaseStandingWins && active.length === 1) {
+    declareWin(s, events, active[0].index, alive.length === 1 ? 'last base standing' : 'last active base standing');
+  } else if (RULES.lastBaseStandingWins && active.length === 0) {
+    // 🟡 Nobody has an active base left (e.g. one Fireball took out the last two): the player whose turn it is wins.
+    const cur = s.players[s.current];
+    declareWin(s, events, (cur.alive ? cur : alive[0] ?? cur).index, 'last one standing among the ruins');
+  } else if (s.mode === 'dogpile' && !alive.some((p) => !p.isBot)) {
+    // Dogpile: once every human is out, the AIs win together.
+    const cur = s.players[s.current];
+    const ai = cur.alive && cur.isBot ? cur : alive.find((p) => p.isBot)!;
+    declareWin(s, events, ai.index, 'the AIs knocked out every human (Dogpile)');
+  }
+}
+
+/** A ruined player whose last King/Rook is gone is out. */
+function checkRuins(s: GameState, events: GameEvent[]) {
+  for (const pl of s.players) {
+    if (s.winner !== null) return;
+    if (pl.alive && pl.ruined && !hasBuilder(s, pl.index)) eliminate(s, events, pl, 'base lies in ruins with no King or Rook left to rebuild it');
+  }
+}
+
+export function canRebuild(s: GameState, p: Piece): boolean {
+  const owner = s.players[p.owner];
+  return s.winner === null && p.owner === s.current && owner.ruined && isBuilder(p) && hexEq(p.pos, owner.base) && p.attacksLeft > 0 && canBeUnit(s, { kind: 'piece', id: p.id });
 }
 
 function dealDamage(s: GameState, events: GameEvent[], target: Target, amount: number) {
@@ -455,10 +568,11 @@ function dealDamage(s: GameState, events: GameEvent[], target: Target, amount: n
       log(s, events, `  ☠ ${name} is destroyed.`);
       removePiece(s, events, p);
       events.push({ type: 'pieceDied', pieceId: p.id, owner: p.owner });
+      s.corpses.push({ id: s.nextId++, owner: p.owner, kind: p.kind, pos: { ...p.pos }, round: s.round });
     }
   } else if (target.kind === 'base') {
     const pl = s.players[target.owner];
-    if (!pl.alive) return;
+    if (!pl.alive || pl.ruined) return;
     const guard = garrisonOf(s, pl);
     if (guard) {
       log(s, events, `  🛡 ${pl.name}'s ${PIECES[guard.kind].name} stands on the base and takes the hit.`);
@@ -467,7 +581,7 @@ function dealDamage(s: GameState, events: GameEvent[], target: Target, amount: n
     }
     pl.baseHp -= amount;
     log(s, events, `  ${pl.name}'s base takes ${amount} → ${Math.max(pl.baseHp, 0)}/${RULES.baseHp} HP`);
-    if (pl.baseHp <= 0) eliminate(s, events, pl);
+    if (pl.baseHp <= 0) destroyBase(s, events, pl);
   }
 }
 
@@ -488,6 +602,8 @@ export function applyAction(s: GameState, action: Action): GameEvent[] {
       assert(p && p.owner === me.index, 'Not your piece');
       assert(legalMoves(s, p).some((h) => hexEq(h, action.to)), 'Illegal move');
       lockUnit(s, { kind: 'piece', id: p.id });
+      const victim = pieceAt(s, action.to);
+      if (victim) capturePiece(s, events, p, victim);
       p.pos = action.to;
       p.movesLeft--;
       log(s, events, `${me.name} moves ${PIECES[p.kind].name} to (${action.to.q},${action.to.r}).`, me.index);
@@ -554,12 +670,30 @@ export function applyAction(s: GameState, action: Action): GameEvent[] {
       log(s, events, `${me.name} picks their ${p ? PIECES[p.kind].name : 'base'} for this turn.`, me.index);
       break;
     }
+    case 'rebuild': {
+      const p = pieceById(s, action.pieceId);
+      assert(p && canRebuild(s, p), 'That piece cannot rebuild right now');
+      lockUnit(s, { kind: 'piece', id: p.id });
+      log(s, events, `${me.name}'s ${PIECES[p.kind].name} works on rebuilding the base.`, me.index);
+      const amt = roll(s, events, 'Rebuild d8', [8], 0, me.index);
+      p.attacksLeft = 0;
+      p.movesLeft = 0;
+      me.baseHp = Math.min(RULES.baseHp, me.baseHp + amt);
+      if (me.baseHp >= RULES.baseHp) {
+        me.ruined = false;
+        log(s, events, `  🏰 ${me.name}'s base is rebuilt (${me.baseHp}/${RULES.baseHp}) and active again!`, me.index);
+        events.push({ type: 'baseRebuilt', player: me.index });
+        checkFlagWin(s, events, p);
+      } else log(s, events, `  Rebuilding: ${me.baseHp}/${RULES.baseHp}.`, me.index);
+      break;
+    }
     case 'endTurn': {
       log(s, events, `${me.name} ends their turn.`, me.index);
       advanceTurn(s, events);
       break;
     }
   }
+  checkRuins(s, events);
   // A player who blew up their own base (e.g. with Fireball) loses the rest of their turn.
   if (s.winner === null && !currentPlayer(s).alive) advanceTurn(s, events);
   return events;
@@ -586,7 +720,7 @@ function advanceTurn(s: GameState, events: GameEvent[]) {
 export function areaVictims(s: GameState, center: Hex, radius: number): { pieces: Piece[]; bases: Player[] } {
   return {
     pieces: s.pieces.filter((p) => hexDistance(p.pos, center) <= radius),
-    bases: s.players.filter((pl) => pl.alive && hexDistance(pl.base, center) <= radius),
+    bases: s.players.filter((pl) => pl.alive && !pl.ruined && hexDistance(pl.base, center) <= radius),
   };
 }
 
@@ -674,6 +808,11 @@ function resolveCard(s: GameState, events: GameEvent[], me: Player, def: CardDef
       log(s, events, `  ${targetName(s, target!)} puts on ${ARMORS[def.id].name}${old ? ` (replacing ${ARMORS[old].name})` : ''}.`);
       break;
     }
+    case 'shackles': {
+      piece!.shackles = true;
+      log(s, events, `  ${targetName(s, target!)} readies a set of shackles ⛓.`);
+      break;
+    }
     case 'armor_rend': {
       const lost = [piece!.armor ? ARMORS[piece!.armor].name : '', piece!.shield ? `${piece!.shield}-pt shield` : ''].filter(Boolean).join(' and ');
       piece!.armor = null;
@@ -686,12 +825,29 @@ function resolveCard(s: GameState, events: GameEvent[], me: Player, def: CardDef
       piece!.movesLeft += def.amount!;
       log(s, events, `  ${targetName(s, target!)} may move again this turn.`);
       break;
-    case 'promote': {
+    case 'promote_pawn_knight':
+    case 'promote_pawn_bishop':
+    case 'promote_pawn_rook':
+    case 'promote_bishop_queen':
+    case 'promote_knight_king':
+    case 'promote_rook_king': {
       const p = piece!;
-      const stats = PIECES.knight;
-      p.kind = 'knight';
-      p.hp = p.maxHp = stats.hp;
-      log(s, events, `  The Pawn is promoted to a Knight!`);
+      const { from, to } = def.promote!;
+      p.kind = to;
+      p.hp = p.maxHp = PIECES[to].hp;
+      log(s, events, `  ${s.players[p.owner].name}'s ${PIECES[from].name} is promoted to a ${PIECES[to].name}!`, me.index);
+      break;
+    }
+    case 'necromancy': {
+      const h = (target as { kind: 'hex'; hex: Hex }).hex;
+      const corpse = [...s.corpses].reverse().find((c) => hexEq(c.pos, h))!;
+      s.corpses = s.corpses.filter((c) => c !== corpse);
+      const raised = spawnPiece(s, me.index, corpse.kind, { ...h }, true);
+      const was = s.players[corpse.owner];
+      log(s, events, corpse.owner === me.index
+        ? `  💀 ${me.name}'s fallen ${PIECES[corpse.kind].name} rises again at full HP!`
+        : `  💀 ${was.name}'s fallen ${PIECES[corpse.kind].name} rises again, now serving ${me.name}!`, me.index);
+      tryPickUp(s, events, raised);
       break;
     }
     case 'rally':

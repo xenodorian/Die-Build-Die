@@ -64,7 +64,8 @@ export type Targeting =
   | 'self'                 // the acting piece (Sharpen, Frenzy, Haste, Recall)
   | 'summonHex'            // an empty hex on/next to your base
   | 'selfOrAdjacentFriend' // the acting piece or a friendly piece next to it (Heal, Shield)
-  | 'friendlyPawnInRange'  // a friendly Pawn within `range` of the acting piece (Promote)
+  | 'adjacentCorpse'       // an empty hex next to the acting piece with a 💀 on it (Necromancy)
+  | 'friendlyKindInRange'  // a friendly piece of kind `promote.from` within `range` of the acting piece (promotions)
   | 'enemyInRange'         // enemy piece or base within `range` of the acting piece (Fire Bolt)
   | 'areaHex'              // any hex within `range` of the acting piece (Fireball)
   | 'arrows'               // `amount` arrows split among enemy PIECES within `range` (Cordon of Arrows)
@@ -74,8 +75,9 @@ export type CardId =
   | 'summon_pawn' | 'summon_knight' | 'summon_bishop' | 'summon_rook' | 'summon_queen' | 'summon_king'
   | 'firebolt' | 'fireball' | 'sharpen' | 'frenzy'
   | 'shield' | 'heal' | 'fortify'
-  | 'haste' | 'promote' | 'rally' | 'recall' | 'cordon'
-  | 'gambeson' | 'breastplate' | 'plate' | 'armor_rend';
+  | 'haste' | 'rally' | 'recall' | 'cordon' | 'necromancy'
+  | 'promote_pawn_knight' | 'promote_pawn_bishop' | 'promote_pawn_rook' | 'promote_bishop_queen' | 'promote_knight_king' | 'promote_rook_king'
+  | 'gambeson' | 'breastplate' | 'plate' | 'armor_rend' | 'shackles';
 
 export type ArmorKind = 'gambeson' | 'breastplate' | 'plate';
 
@@ -83,11 +85,11 @@ export type ArmorKind = 'gambeson' | 'breastplate' | 'plate';
  * Armor protects against each hit the piece takes (attacks, Fire Bolt, each arrow, Fireball).
  * A piece can have a Shield AND one armor: the shield absorbs FIRST, then armor handles what gets through.
  * Armors don't stack with each other: equipping one replaces the old one.
- *  - `pool` armor (Gambesson) soaks damage until `pool` points total are used up, then it's gone.
+ *  - `pool` armor (Gambeson) soaks damage until `pool` points total are used up, then it's gone.
  *  - `reduce` armor (Breastplate, Plate) cuts every hit by that much, forever.
  */
 export const ARMORS: Record<ArmorKind, { name: string; reduce?: number; pool?: number; icon: string }> = {
-  gambeson:    { name: 'Gambesson',   pool: 4,   icon: '🧥' },
+  gambeson:    { name: 'Gambeson',   pool: 4,   icon: '🧥' },
   breastplate: { name: 'Breastplate', reduce: 4, icon: '🦺' },
   plate:       { name: 'Plate Armor', reduce: 6, icon: '🛡' },
 };
@@ -108,6 +110,8 @@ export interface CardDef {
   range?: number;
   /** Area cards: blast radius around the target hex. */
   radius?: number;
+  /** Promotion cards: which piece kind becomes which. */
+  promote?: { from: PieceKind; to: PieceKind };
   /** Copies of this card in each player's deck. */
   copies: number;
 }
@@ -128,24 +132,31 @@ export const CARDS: Record<CardId, CardDef> = {
   sharpen:  { id: 'sharpen',  name: 'Sharpen',   cls: 'knight', category: 'offense', cost: 1, targeting: 'self', amount: 2, copies: 3, text: 'This piece\'s next attack deals +2 damage.' },
   frenzy:   { id: 'frenzy',   name: 'Frenzy',    cls: 'knight', category: 'offense', cost: 2, targeting: 'self', amount: 1, copies: 2, text: 'This piece may attack one extra time this turn.' },
   cordon:   { id: 'cordon',   name: 'Cordon of Arrows', cls: 'knight', category: 'offense', cost: 4, targeting: 'arrows', amount: 4, range: 4, dice: { count: 1, die: 8 }, copies: 2, text: 'Shoot 4 arrows, split as you like among enemy pieces within 4 hexes. Each arrow deals 1d8.' },
+  shackles: { id: 'shackles', name: 'Shackles', cls: 'knight', category: 'special', cost: 2, targeting: 'self', copies: 2, text: 'Equip this piece. It may move onto an enemy piece with LESS current HP than it has: that piece is captured and held prisoner at your base. One use.' },
   haste:    { id: 'haste',    name: 'Haste',     cls: 'knight', category: 'special', cost: 1, targeting: 'self', amount: 1, copies: 3, text: 'This piece may move one extra time this turn.' },
 
   // ---- Bishop cards (Bishop, Queen, King) ----
   firebolt: { id: 'firebolt', name: 'Fire Bolt', cls: 'bishop', category: 'offense', cost: 2, targeting: 'enemyInRange', range: 3, dice: { count: 2, die: 4 }, copies: 3, text: 'Deal 2d4 to an enemy piece or base within 3 hexes of this piece.' },
-  fireball: { id: 'fireball', name: 'Fireball',  cls: 'bishop', category: 'offense', cost: 7, targeting: 'areaHex', range: 10, radius: 4, dice: { count: 8, die: 6 }, copies: 1, text: 'Pick a hex within 10 of this piece. Roll 8d6: EVERY piece (yours too) and base within 4 hexes takes it.' },
+  fireball: { id: 'fireball', name: 'Fireball',  cls: 'bishop', category: 'offense', cost: 7, targeting: 'areaHex', range: 5, radius: 2, dice: { count: 8, die: 6 }, copies: 1, text: 'Pick a hex within 5 of this piece. Roll 8d6: EVERY piece (yours too) and base within 2 hexes takes it.' },
   armor_rend: { id: 'armor_rend', name: 'Armor Rend', cls: 'bishop', category: 'offense', cost: 3, targeting: 'enemyPieceInRange', range: 4, copies: 2, text: 'Strip all armor and shields from an enemy piece within 4 hexes of this piece.' },
+  necromancy: { id: 'necromancy', name: 'Necromancy', cls: 'bishop', category: 'special', cost: 3, targeting: 'adjacentCorpse', copies: 2, text: 'Raise a dead piece whose 💀 is next to this piece, at full HP on its skull hex. An enemy corpse rises on YOUR side. It can act from your next turn.' },
   recall:   { id: 'recall',   name: 'Recall',    cls: 'bishop', category: 'special', cost: 1, targeting: 'self', amount: 2, copies: 2, text: 'Teleport this piece next to your base and heal it 2. A carried flag is dropped.' },
 
   // ---- Rook cards (Rook, Queen, King) ----
   shield:   { id: 'shield',   name: 'Shield',    cls: 'rook',   category: 'defense', cost: 1, targeting: 'selfOrAdjacentFriend', amount: 4, copies: 3, text: 'This piece or an adjacent friendly piece gains a 4-point damage shield.' },
   fortify:  { id: 'fortify',  name: 'Fortify',   cls: 'rook',   category: 'defense', cost: 2, targeting: 'none', amount: 6, copies: 2, text: 'Repair your base for 6 HP (up to its max).' },
-  gambeson:    { id: 'gambeson',    name: 'Gambesson',   cls: 'rook', category: 'defense', cost: 1, targeting: 'self', copies: 3, text: 'Armor (replaces current): soaks up the next 4 damage this piece takes, then it is gone.' },
+  gambeson:    { id: 'gambeson',    name: 'Gambeson',   cls: 'rook', category: 'defense', cost: 1, targeting: 'self', copies: 3, text: 'Armor (replaces current): soaks up the next 4 damage this piece takes, then it is gone.' },
   breastplate: { id: 'breastplate', name: 'Breastplate', cls: 'rook', category: 'defense', cost: 3, targeting: 'self', copies: 2, text: 'Armor (replaces current): every hit on this piece is reduced by 4.' },
   plate:       { id: 'plate',       name: 'Plate Armor', cls: 'rook', category: 'defense', cost: 5, targeting: 'self', copies: 1, text: 'Armor (replaces current): every hit on this piece is reduced by 6.' },
   rally:    { id: 'rally',    name: 'Rally',     cls: 'rook',   category: 'special', cost: 1, targeting: 'none', amount: 2, copies: 2, text: 'Draw 2 cards.' },
 
   // ---- Queen card (Queen, King) ----
-  promote:  { id: 'promote',  name: 'Promote',   cls: 'queen',  category: 'special', cost: 2, targeting: 'friendlyPawnInRange', range: 3, copies: 2, text: 'Turn a friendly Pawn within 3 hexes into a full-HP Knight.' },
+  promote_pawn_knight: { id: 'promote_pawn_knight', name: 'Promote: Pawn → Knight', cls: 'queen', category: 'special', cost: 2, targeting: 'friendlyKindInRange', range: 3, promote: { from: 'pawn', to: 'knight' }, copies: 2, text: 'Turn a friendly Pawn within 3 hexes into a full-HP Knight. It keeps its gear, the flag, and any move or attack it has left.' },
+  promote_pawn_bishop: { id: 'promote_pawn_bishop', name: 'Promote: Pawn → Bishop', cls: 'queen', category: 'special', cost: 3, targeting: 'friendlyKindInRange', range: 3, promote: { from: 'pawn', to: 'bishop' }, copies: 2, text: 'Turn a friendly Pawn within 3 hexes into a full-HP Bishop. It keeps its gear, the flag, and any move or attack it has left.' },
+  promote_pawn_rook: { id: 'promote_pawn_rook', name: 'Promote: Pawn → Rook', cls: 'queen', category: 'special', cost: 4, targeting: 'friendlyKindInRange', range: 3, promote: { from: 'pawn', to: 'rook' }, copies: 2, text: 'Turn a friendly Pawn within 3 hexes into a full-HP Rook. It keeps its gear, the flag, and any move or attack it has left.' },
+  promote_bishop_queen: { id: 'promote_bishop_queen', name: 'Promote: Bishop → Queen', cls: 'queen', category: 'special', cost: 5, targeting: 'friendlyKindInRange', range: 3, promote: { from: 'bishop', to: 'queen' }, copies: 1, text: 'Turn a friendly Bishop within 3 hexes into a full-HP Queen. It keeps its gear, the flag, and any move or attack it has left.' },
+  promote_knight_king: { id: 'promote_knight_king', name: 'Promote: Knight → King', cls: 'queen', category: 'special', cost: 6, targeting: 'friendlyKindInRange', range: 3, promote: { from: 'knight', to: 'king' }, copies: 1, text: 'Turn a friendly Knight within 3 hexes into a full-HP King. It keeps its gear, the flag, and any move or attack it has left.' },
+  promote_rook_king: { id: 'promote_rook_king', name: 'Promote: Rook → King', cls: 'queen', category: 'special', cost: 6, targeting: 'friendlyKindInRange', range: 3, promote: { from: 'rook', to: 'king' }, copies: 1, text: 'Turn a friendly Rook within 3 hexes into a full-HP King. It keeps its gear, the flag, and any move or attack it has left.' },
 };
 
 export function canClassBeUsedBy(cls: CardClass, kind: PieceKind): boolean {
@@ -154,7 +165,7 @@ export function canClassBeUsedBy(cls: CardClass, kind: PieceKind): boolean {
 
 export const RULES = {
   /** Board is a hexagon of this radius; corners and centre are this far apart. */
-  boardRadius: 10,
+  boardRadius: 5,
   minPlayers: 2,
   maxPlayers: 6,
 

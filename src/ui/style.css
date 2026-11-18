@@ -185,3 +185,29 @@ a { color: var(--gold); }
 .row-btns { margin-top: 8px; display: flex; gap: 8px; align-items: center; }
 .info .btn { margin-top: 8px; width: 100%; }
 .armor-badge { font-size: 11px; text-anchor: middle; pointer-events: none; }
+
+/* round 4: setup + mode chip */
+.setup-card .field { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 10px 0; color: var(--muted); font-size: 14px; }
+.setup-card label.field input { flex: 1; max-width: 220px; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; color: var(--text); padding: 7px 10px; font: inherit; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.seg button { background: var(--bg2); color: var(--text); border: none; padding: 7px 12px; font: inherit; font-size: 14px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--gold); color: #222; font-weight: 800; }
+.count button { cursor: pointer; }
+.small.left { text-align: left; margin: 2px 0 8px; line-height: 1.4; }
+details.adv { margin: 10px 0 4px; background: var(--bg2); border-radius: 10px; padding: 8px 10px; }
+details.adv summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+.seatlist { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 14px; }
+.seatchip { display: inline-flex; align-items: center; gap: 6px; background: var(--bg2); border-radius: 999px; padding: 4px 10px 4px 6px; font-size: 13px; border: 1px solid var(--line); }
+.seatchip .swatch { width: 12px; height: 12px; border-radius: 50%; background: var(--pc); }
+.modechip { background: var(--bg2); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; font-size: 13px; white-space: nowrap; }
+
+.hl-capture { fill: none; stroke: #c9a7ff; stroke-width: 2.5; stroke-dasharray: 4 3; pointer-events: none; }
+.capture-icon { font-size: 10px; text-anchor: middle; pointer-events: none; }
+.prisoners { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.base-g.ruined .base-icon { opacity: .8; } .base-g.ruined .base-hp { font-size: 8px; }
+
+.skull { pointer-events: none; }
+.skull-icon { font-size: 16px; text-anchor: middle; opacity: .55; }
+.skull-dot { fill: var(--pc); opacity: .8; }
+.skull-n { font-size: 8px; fill: #ddd; text-anchor: middle; }

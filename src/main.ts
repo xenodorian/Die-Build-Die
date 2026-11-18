@@ -4,10 +4,11 @@ import {
   CENTER, activePiece, applyAction, areaVictims, baseAt, canBeUnit, canPlayCard, cardBlockReason, cardTargets, cardUsersText, currentPlayer,
   flagCarrier, flagHex, legalAttacks, legalMoves, newGame, pieceAt,
   pieceById, sameTarget, targetName,
+  canRebuild,
 } from './game/engine';
 import { chooseBotAction } from './game/bot';
 import { hexDistance, hexEq, hexagonBoard, type Hex } from './game/hex';
-import type { Action, Card, GameEvent, GameState, Target } from './game/types';
+import type { Action, Card, Difficulty, GameEvent, GameMode, GameState, PlayerSetup, Target } from './game/types';
 import { animateRoll } from './ui/dice';
 
 const RULES_URL = 'https://github.com/xenodorian/Die-Build-Die/blob/main/RULES.md';
@@ -31,65 +32,115 @@ const ui: Ui = { state: null, selectedPiece: null, pendingCard: null, arrows: []
 
 // ------------------------------------------------------------------ setup screen
 
-interface SeatSetup { name: string; isBot: boolean }
-let seatSetups: SeatSetup[] = [
-  { name: '', isBot: false },
-  { name: '', isBot: true },
-];
+interface SetupCfg {
+  name: string;
+  opponents: number; // AI opponents, 1-5
+  difficulty: Difficulty;
+  mode: GameMode;
+  extraHumans: number; // pass-and-play humans besides you
+}
+const setupCfg: SetupCfg = loadSetup();
+
+function loadSetup(): SetupCfg {
+  const def: SetupCfg = { name: '', opponents: 1, difficulty: 'normal', mode: 'ffa', extraHumans: 0 };
+  try {
+    return { ...def, ...JSON.parse(localStorage.getItem('dbd-setup') ?? '{}') };
+  } catch {
+    return def;
+  }
+}
+const maxExtraHumans = () => RULES.maxPlayers - 1 - setupCfg.opponents;
+
+const DIFF_INFO: Record<Difficulty, { label: string; blurb: string }> = {
+  easy: { label: 'Easy', blurb: 'Makes mistakes: sometimes picks a random unit, misjudges plans, stops early.' },
+  normal: { label: 'Normal', blurb: 'Plays out every unit it could use this turn and picks the best.' },
+  hard: { label: 'Hard', blurb: 'Plans each turn further ahead, guesses what your pieces could do to it next turn, and protects its flag carrier.' },
+};
+
+function seatPreview(): string {
+  const n = 1 + setupCfg.extraHumans + setupCfg.opponents;
+  const corners = RULES.seatCorners[n];
+  const rows: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const c = corners[i];
+    const isMe = i === 0;
+    const human = i <= setupCfg.extraHumans;
+    const label = isMe ? `${escapeHtml(setupCfg.name.trim() || PLAYER_NAMES[c])} (you)` : human ? `${PLAYER_NAMES[c]} 🧑 hot-seat` : `${PLAYER_NAMES[c]} 🤖 ${DIFF_INFO[setupCfg.difficulty].label}`;
+    rows.push(`<span class="seatchip" style="--pc:${PLAYER_COLORS[c]}"><span class="swatch"></span>${label}</span>`);
+  }
+  return rows.join('');
+}
 
 function renderSetup() {
-  const n = seatSetups.length;
-  const seats = RULES.seatCorners[n];
+  const c = setupCfg;
+  c.extraHumans = Math.min(c.extraHumans, maxExtraHumans());
+  const showMode = c.opponents >= 2;
   app.innerHTML = `
   <div class="setup">
     <h1 class="logo">Die <span>Build</span> Die</h1>
     <p class="tagline">Chess pieces. A deck of cards. A fistful of dice. Grab the flag from the centre and carry it home.</p>
     <div class="setup-card">
-      <label class="row">Players
-        <div class="count">${[2, 3, 4, 5, 6].map((k) => `<button data-count="${k}" class="${k === n ? 'on' : ''}">${k}</button>`).join('')}</div>
+      <label class="field">Your name
+        <input id="pname" placeholder="${PLAYER_NAMES[RULES.seatCorners[2][0]]}" value="${escapeHtml(c.name)}" maxlength="14"/>
       </label>
-      <div class="seats">
-        ${seatSetups.map((s, i) => `
-          <div class="seat" style="--pc:${PLAYER_COLORS[seats[i]]}">
-            <span class="swatch"></span>
-            <input data-name="${i}" placeholder="${PLAYER_NAMES[seats[i]]}" value="${escapeHtml(s.name)}" maxlength="14"/>
-            <button data-bot="${i}" class="toggle ${s.isBot ? 'bot' : ''}">${s.isBot ? '🤖 Bot' : '🧑 Human'}</button>
-          </div>`).join('')}
+      <div class="field"><span>AI opponents</span>
+        <div class="count">${[1, 2, 3, 4, 5].map((k) => `<button data-opp="${k}" class="${k === c.opponents ? 'on' : ''}">${k}</button>`).join('')}</div>
       </div>
-      <label class="check"><input type="checkbox" id="hide" ${ui.hideHands ? 'checked' : ''}/> Hide hands between human turns (pass-and-play)</label>
+      <div class="field"><span>AI difficulty</span>
+        <div class="seg">${(['easy', 'normal', 'hard'] as Difficulty[]).map((d) => `<button data-diff="${d}" class="${d === c.difficulty ? 'on' : ''}">${DIFF_INFO[d].label}</button>`).join('')}</div>
+      </div>
+      <p class="small left">${DIFF_INFO[c.difficulty].blurb}</p>
+      ${showMode ? `<div class="field"><span>Mode</span>
+        <div class="seg">
+          <button data-mode="ffa" class="${c.mode === 'ffa' ? 'on' : ''}">Free for All</button>
+          <button data-mode="dogpile" class="${c.mode === 'dogpile' ? 'on' : ''}">Dogpile</button>
+        </div></div>
+        <p class="small left">${c.mode === 'dogpile'
+          ? '<b>Dogpile:</b> every AI gangs up on you: hunting your pieces, chasing your flag carrier and smashing your base. They leave each other alone. If you are knocked out, you lose. An AI can still win by bringing the flag home.'
+          : '<b>Free for All:</b> each AI does whatever is best for itself: fighting you <i>or</i> the other AIs, and racing for the flag.'}</p>` : ''}
+      <details class="adv" ${c.extraHumans ? 'open' : ''}><summary>Pass-and-play (more humans on this device)</summary>
+        <div class="field"><span>Extra human players</span>
+          <div class="count">${Array.from({ length: maxExtraHumans() + 1 }, (_, k) => `<button data-hum="${k}" class="${k === c.extraHumans ? 'on' : ''}">${k}</button>`).join('')}</div>
+        </div>
+        <label class="check"><input type="checkbox" id="hide" ${ui.hideHands ? 'checked' : ''}/> Hide hands between human turns</label>
+      </details>
       <label class="check"><input type="checkbox" id="fast" ${ui.fastDice ? 'checked' : ''}/> Fast dice</label>
+      <div class="seatlist">${seatPreview()}</div>
       <button class="primary big" id="start">Start game</button>
       <p class="small"><a href="${RULES_URL}" target="_blank" rel="noopener">Read the rules</a></p>
     </div>
   </div>`;
-  app.querySelectorAll<HTMLButtonElement>('[data-count]').forEach((b) =>
-    b.addEventListener('click', () => {
-      const k = Number(b.dataset.count);
-      while (seatSetups.length < k) seatSetups.push({ name: '', isBot: true });
-      seatSetups = seatSetups.slice(0, k);
-      renderSetup();
-    }),
-  );
-  app.querySelectorAll<HTMLButtonElement>('[data-bot]').forEach((b) =>
-    b.addEventListener('click', () => {
-      const i = Number(b.dataset.bot);
-      seatSetups[i].isBot = !seatSetups[i].isBot;
-      renderSetup();
-    }),
-  );
-  app.querySelectorAll<HTMLInputElement>('[data-name]').forEach((inp) =>
-    inp.addEventListener('input', () => (seatSetups[Number(inp.dataset.name)].name = inp.value)),
-  );
+  const rerender = () => {
+    localStorage.setItem('dbd-setup', JSON.stringify(setupCfg));
+    renderSetup();
+  };
+  app.querySelectorAll<HTMLButtonElement>('[data-opp]').forEach((b) => b.addEventListener('click', () => { c.opponents = Number(b.dataset.opp); rerender(); }));
+  app.querySelectorAll<HTMLButtonElement>('[data-diff]').forEach((b) => b.addEventListener('click', () => { c.difficulty = b.dataset.diff as Difficulty; rerender(); }));
+  app.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((b) => b.addEventListener('click', () => { c.mode = b.dataset.mode as GameMode; rerender(); }));
+  app.querySelectorAll<HTMLButtonElement>('[data-hum]').forEach((b) => b.addEventListener('click', () => { c.extraHumans = Number(b.dataset.hum); rerender(); }));
+  const nameInput = app.querySelector('#pname') as HTMLInputElement;
+  nameInput.addEventListener('input', () => {
+    c.name = nameInput.value;
+    localStorage.setItem('dbd-setup', JSON.stringify(setupCfg));
+    (app.querySelector('.seatlist') as HTMLElement).innerHTML = seatPreview();
+  });
   (app.querySelector('#hide') as HTMLInputElement).addEventListener('change', (e) => (ui.hideHands = (e.target as HTMLInputElement).checked));
   (app.querySelector('#fast') as HTMLInputElement).addEventListener('change', (e) => (ui.fastDice = (e.target as HTMLInputElement).checked));
   app.querySelector('#start')!.addEventListener('click', startGame);
 }
 
 function startGame() {
-  const { state } = newGame(seatSetups.map((s) => ({ name: s.name.trim(), isBot: s.isBot })));
+  const c = setupCfg;
+  const setups: PlayerSetup[] = [
+    { name: c.name.trim(), isBot: false },
+    ...Array.from({ length: c.extraHumans }, () => ({ isBot: false })),
+    ...Array.from({ length: c.opponents }, () => ({ isBot: true, difficulty: c.difficulty })),
+  ];
+  const { state } = newGame(setups, Date.now(), c.opponents >= 2 ? c.mode : 'ffa');
   ui.state = state;
   ui.selectedPiece = null;
   ui.pendingCard = null;
+  ui.arrows = [];
   ui.revealed = !needsHandoff();
   renderGame();
   void maybeRunBot();
@@ -115,7 +166,8 @@ const needsHandoff = () => ui.hideHands && !currentPlayer(ui.state!).isBot && hu
 const CATEGORY_LABEL: Record<CardCategory, string> = { conjuration: 'Conjuration', offense: 'Offense', defense: 'Defense', special: 'Special' };
 const CLASS_BADGE: Record<string, string> = { conjuration: '🏰 Base', pawn: '♟ Pawn', knight: '♞ Knight', bishop: '♝ Bishop', rook: '♜ Rook', queen: '♛ Queen' };
 const CATEGORY_ICON: Record<string, string> = {
-  firebolt: '🔥', fireball: '☄️', cordon: '🏹', gambeson: '🧥', breastplate: '🦺', plate: '🛡', armor_rend: '🔨', sharpen: '🗡️', frenzy: '⚔️', shield: '🛡️', heal: '✚', fortify: '🏰', haste: '💨', promote: '⬆️', rally: '🎴', recall: '↩️',
+  shackles: '⛓',
+  firebolt: '🔥', fireball: '☄️', cordon: '🏹', gambeson: '🧥', breastplate: '🦺', plate: '🛡', armor_rend: '🔨', sharpen: '🗡️', frenzy: '⚔️', shield: '🛡️', heal: '✚', fortify: '🏰', haste: '💨', necromancy: '💀', promote_pawn_knight: '⬆️', promote_pawn_bishop: '⬆️', promote_pawn_rook: '⬆️', promote_bishop_queen: '⬆️', promote_knight_king: '👑', promote_rook_king: '👑', rally: '🎴', recall: '↩️',
 };
 
 // ------------------------------------------------------------------ highlights
@@ -197,6 +249,15 @@ function renderBoard(hl: HL): string {
       continue;
     }
     const frac = Math.max(0, p.baseHp / RULES.baseHp);
+    if (p.ruined) {
+      overlays += `<g class="base-g ruined" style="--pc:${p.color}">
+      <text class="base-icon" x="${x}" y="${y - 3}">🏚</text>
+      <rect x="${x - 14}" y="${y + 10}" width="28" height="4" rx="2" class="hpbg"/>
+      <rect x="${x - 14}" y="${y + 10}" width="${28 * frac}" height="4" rx="2" fill="#9aa0a6"/>
+      <text class="base-hp" x="${x}" y="${y + 22}">🔨${p.baseHp}/${RULES.baseHp}</text>
+    </g>`;
+      continue;
+    }
     overlays += `<g class="base-g" style="--pc:${p.color}">
       ${p.index === s.current && s.active?.kind === 'base' ? `<polygon class="base-active" points="${hexPoints(p.base, S + 2)}"/>` : ''}
       <text class="base-icon" x="${x}" y="${y - 3}">🏰</text>
@@ -204,6 +265,17 @@ function renderBoard(hl: HL): string {
       <rect x="${x - 14}" y="${y + 10}" width="${28 * frac}" height="4" rx="2" fill="${p.color}"/>
       <text class="base-hp" x="${x}" y="${y + 22}">${p.baseHp}</text>
     </g>`;
+  }
+  // Skulls where pieces died (under everything else)
+  const skullHexes = new Map<string, { n: number; last: (typeof s.corpses)[number] }>();
+  for (const c of s.corpses) {
+    const k = `${c.pos.q},${c.pos.r}`;
+    skullHexes.set(k, { n: (skullHexes.get(k)?.n ?? 0) + 1, last: c });
+  }
+  for (const { n, last } of skullHexes.values()) {
+    const { x, y } = px(last.pos);
+    overlays += `<g class="skull" style="--pc:${s.players[last.owner].color}"><title>${n > 1 ? `${n} fallen pieces` : `Fallen ${s.players[last.owner].name} ${PIECES[last.kind].name}`}</title>
+      <text class="skull-icon" x="${x}" y="${y + 6}">💀</text><circle class="skull-dot" cx="${x + 9}" cy="${y + 8}" r="3"/>${n > 1 ? `<text class="skull-n" x="${x - 10}" y="${y + 10}">${n}</text>` : ''}</g>`;
   }
   // Move highlights
   for (const m of hl.moves) {
@@ -228,9 +300,16 @@ function renderBoard(hl: HL): string {
       <rect x="${x - 12}" y="${y + 13}" width="${24 * frac}" height="3.5" rx="1.7" class="hp ${frac <= 0.34 ? 'low' : ''}"/>
       ${p.bonusDamage ? `<text class="badge" x="${x + 12}" y="${y - 9}">+${p.bonusDamage}</text>` : ''}
       ${p.armor ? `<text class="armor-badge" x="${x - 13}" y="${y + 18}">${ARMORS[p.armor].icon}</text>` : ''}
+      ${p.shackles ? `<text class="armor-badge" x="${x + 13}" y="${y + 18}">⛓</text>` : ''}
       ${arrowsHere ? `<circle cx="${x - 12}" cy="${y - 11}" r="7" class="arrow-badge"/><text class="arrow-count" x="${x - 12}" y="${y - 8}">${arrowsHere}</text>` : ''}
       ${s.flag.carrier === p.id ? `<circle cx="${x}" cy="${y}" r="${big ? 19 : 17.5}" class="carrier-ring"/><text class="carrier-flag" x="${x + 13}" y="${y - 7}">🚩</text>` : ''}
     </g>`;
+  }
+  // Shackles: capture targets (a move onto an enemy piece)
+  for (const m of hl.moves) {
+    if (!pieceAt(s, m)) continue;
+    const { x, y } = px(m);
+    overlays += `<circle class="hl-capture" cx="${x}" cy="${y}" r="17"/><text class="capture-icon" x="${x}" y="${y - 14}">⛓</text>`;
   }
   // Attack + card target highlights (drawn on top)
   for (const hx of atkHexes) overlays += `<polygon class="hl-attack" points="${hexPoints(hx, S - 2)}"/>`;
@@ -286,7 +365,9 @@ function unitPanel(): string {
   const me = currentPlayer(s);
   if (me.isBot) return '<div class="hint">Bot is playing…</div>';
   if (s.mustDiscard > 0) return `<div class="hint strong warn">✋ You have ${me.hand.length} cards — click ${s.mustDiscard === 1 ? 'a card' : `${s.mustDiscard} cards`} in your hand to discard (limit ${RULES.handLimit}).</div>`;
-  const baseBtn = canBeUnit(s, { kind: 'base' }) && s.active?.kind !== 'base'
+  const baseBtn = me.ruined
+    ? `<div class="hint warn">🏚 Your base is in ruins (${me.baseHp}/${RULES.baseHp} rebuilt). Stand a King or Rook on it and press Rebuild (1d8 per turn). Lose every King and Rook and you're out.</div>`
+    : canBeUnit(s, { kind: 'base' }) && s.active?.kind !== 'base'
     ? `<button id="usebase" class="btn">🏰 Use my base (conjure pieces)</button>` : '';
   const lock = s.turnActed ? '<span class="locked">🔒 locked in for this turn</span>' : '<span class="muted">You can still switch.</span>';
   if (!s.active) {
@@ -304,6 +385,8 @@ function unitPanel(): string {
       <div class="big">${st.glyph} ${st.name}${s.flag.carrier === sel.id ? ' 🚩' : ''}</div>
       <div>❤ ${sel.hp}/${sel.maxHp}${sel.shield ? ` · 🔵 shield ${sel.shield}` : ''} · 🎲 d${st.die}${sel.bonusDamage ? ` +${sel.bonusDamage}` : ''}</div>
       ${sel.armor ? `<div>${ARMORS[sel.armor].icon} ${ARMORS[sel.armor].name}: ${ARMORS[sel.armor].pool ? `soaks ${sel.armorPool ?? 0} more damage` : `−${ARMORS[sel.armor].reduce} on every hit`}</div>` : ''}
+      ${sel.shackles ? `<div>⛓ Shackles: move onto an enemy piece with less than ${sel.hp} HP to capture it (Shift+click to attack instead)</div>` : ''}
+      ${canRebuild(s, sel) ? `<button id="rebuild" class="btn">🔨 Rebuild base (1d8 · uses this piece's attack and move)</button>` : ''}
       <div>Moves ${sel.movesLeft} · Attacks ${sel.attacksLeft} · Cards ${Math.max(0, RULES.cardsPerPieceTurn - s.cardsUsed)}</div>
       <div>${lock}</div>
     </div>${s.turnActed ? '' : baseBtn}`;
@@ -316,7 +399,7 @@ function renderSidebar() {
     return `<div class="pl ${p.index === s.current ? 'cur' : ''} ${p.alive ? '' : 'out'}" style="--pc:${p.color}">
       <span class="swatch"></span>
       <span class="pname">${escapeHtml(p.name)}${p.isBot ? ' 🤖' : ''}</span>
-      <span class="pmeta">🏰 ${Math.max(0, p.baseHp)} · ♟ ${pieces} · 🂠 ${p.hand.length} · deck ${p.deck.length}</span>
+      <span class="pmeta">${p.ruined ? `🏚 ruin ${p.baseHp}/${RULES.baseHp}` : `🏰 ${Math.max(0, p.baseHp)}`} · ♟ ${pieces} · 🂠 ${p.hand.length} · deck ${p.deck.length}${p.prisoners.length ? ` · <span title="Prisoners held at this base: ${p.prisoners.map((x) => `${s.players[x.owner].name} ${PIECES[x.kind].name}`).join(', ')}">⛓ ${p.prisoners.map((x) => `<span style="color:${s.players[x.owner].color}">${PIECES[x.kind].glyph}</span>`).join('')}</span>` : ''}</span>
     </div>`;
   }).join('');
 
@@ -338,6 +421,14 @@ function renderSidebar() {
   </aside>`;
 }
 
+function hudMode(): string {
+  const s = ui.state!;
+  const bots = s.players.filter((p) => p.isBot);
+  if (!bots.length) return '🧑 Hot-seat';
+  const diffs = [...new Set(bots.map((b) => DIFF_INFO[b.difficulty].label))].join('/');
+  return `🤖 ${diffs} · ${s.mode === 'dogpile' ? '🐺 Dogpile' : '⚔ Free for All'}`;
+}
+
 function renderGame() {
   const s = ui.state!;
   const me = currentPlayer(s);
@@ -353,6 +444,7 @@ function renderGame() {
     <header class="top">
       <div class="logo small">Die <span>Build</span> Die</div>
       <div class="turn"><span class="swatch"></span><span><b>${escapeHtml(me.name)}'s</b> turn · Round ${s.round}</span></div>
+      <div class="modechip" title="AI difficulty and game mode">${hudMode()}</div>
       <div class="energy" title="Energy pays for cards">⚡ ${me.energy} ${energyPips}</div>
       <div class="spacer"></div>
       <a class="btn ghost" href="${RULES_URL}" target="_blank" rel="noopener">Rules</a>
@@ -369,7 +461,15 @@ function renderGame() {
       <div class="swatch big"></div><h2>${escapeHtml(me.name)}'s turn</h2><p>Pass the device to ${escapeHtml(me.name)}.</p>
       <button class="btn primary" id="reveal">Show my hand</button></div></div>` : ''}
     ${s.winner !== null ? `<div class="modal"><div class="modal-card" style="--pc:${s.players[s.winner].color}">
-      <div class="trophy">🏆</div><h2>${escapeHtml(s.players[s.winner].name)} wins!</h2><p>${escapeHtml(s.winReason ?? '')} · Round ${s.round}</p>
+      ${(() => {
+        const w = s.players[s.winner!];
+        const humans = s.players.filter((p) => !p.isBot);
+        const lost = w.isBot && humans.length === 1;
+        const won = !w.isBot && humans.length === 1;
+        return lost
+          ? `<div class="trophy">💀</div><h2>Defeat</h2><p class="small">${escapeHtml(w.name)} wins${s.mode === 'dogpile' ? ' for the AI pack' : ''}.</p>`
+          : `<div class="trophy">🏆</div><h2>${won ? 'Victory! ' : ''}${escapeHtml(w.name)} wins!</h2>`;
+      })()}<p>${escapeHtml(s.winReason ?? '')} · Round ${s.round}</p>
       <button class="btn primary" id="again">Play again</button> <button class="btn ghost" id="setup">Change setup</button></div></div>` : ''}
   </div>`;
 
@@ -403,6 +503,7 @@ function bindGame() {
     ui.arrows = [];
     renderGame();
   });
+  app.querySelector('#rebuild')?.addEventListener('click', () => { const p = activePiece(ui.state!); if (p) void doAction({ type: 'rebuild', pieceId: p.id }); });
   app.querySelector('#usebase')?.addEventListener('click', () => void doAction({ type: 'selectUnit', unit: { kind: 'base' } }));
   app.querySelector('#resetarrows')?.addEventListener('click', () => {
     ui.arrows = [];
@@ -417,7 +518,7 @@ function bindGame() {
   );
   app.querySelectorAll<SVGElement>('.hit').forEach((el) => {
     const h = { q: Number(el.dataset.q), r: Number(el.dataset.r) };
-    el.addEventListener('click', () => onHexClick(h));
+    el.addEventListener('click', (e) => onHexClick(h, (e as MouseEvent).shiftKey));
     el.addEventListener('mouseenter', () => previewArea(h));
   });
   app.querySelectorAll<HTMLElement>('[data-discard]').forEach((el) =>
@@ -477,7 +578,7 @@ function previewArea(h: Hex) {
     bases.map((b) => { const c = px(b.base); return `<circle class="aoe-victim" cx="${c.x}" cy="${c.y}" r="18"/>`; }).join('');
 }
 
-function onHexClick(h: Hex) {
+function onHexClick(h: Hex, shift = false) {
   const s = ui.state!;
   if (ui.busy || currentPlayer(s).isBot || s.winner !== null || s.mustDiscard > 0) return;
   const hl = highlights();
@@ -506,6 +607,11 @@ function onHexClick(h: Hex) {
   }
   const ap = activePiece(s);
   if (ap) {
+    // Shackles: moving onto an enemy piece captures it. That wins over attacking it; Shift+click attacks instead.
+    if (piece && piece.owner !== s.current && hl.moves.some((m) => hexEq(m, h)) && !shift) {
+      void doAction({ type: 'move', pieceId: ap.id, to: h });
+      return;
+    }
     const atk = targetsHere.find((t) => hl.attacks.some((a) => sameTarget(a, t)));
     if (atk) {
       void doAction({ type: 'attack', pieceId: ap.id, target: atk });
