@@ -96,7 +96,7 @@ export function evaluate(s: GameState, me: number): number {
 
   // Material
   for (const p of s.pieces) {
-    const w = WORTH[p.kind] + p.hp * 2 + p.shield + p.bonusDamage + (p.armor ? ARMORS[p.armor].reduce * (ARMORS[p.armor].oneShot ? 1 : 3) : 0);
+    const w = WORTH[p.kind] + p.hp * 2 + p.shield + p.bonusDamage + (p.armor ? (ARMORS[p.armor].pool ? (p.armorPool ?? 0) : (ARMORS[p.armor].reduce ?? 0) * 3) : 0);
     v += p.owner === me ? w : -w * share;
   }
   // Bases

@@ -438,10 +438,16 @@ function dealDamage(s: GameState, events: GameEvent[], target: Target, amount: n
     let armorNote = '';
     if (p.armor && dmg > 0) {
       const a = ARMORS[p.armor];
-      blocked = Math.min(a.reduce, dmg);
+      if (a.pool) {
+        blocked = Math.min(p.armorPool ?? 0, dmg);
+        p.armorPool = (p.armorPool ?? 0) - blocked;
+        armorNote = ` (${a.name} soaked ${blocked}${p.armorPool <= 0 ? ' and is used up' : `, ${p.armorPool} left`})`;
+        if (p.armorPool <= 0) p.armor = null;
+      } else {
+        blocked = Math.min(a.reduce ?? 0, dmg);
+        armorNote = ` (${a.name} blocked ${blocked})`;
+      }
       dmg -= blocked;
-      armorNote = ` (${a.name} blocked ${blocked}${a.oneShot ? ' and is used up' : ''})`;
-      if (a.oneShot) p.armor = null;
     }
     p.hp -= dmg;
     log(s, events, `  ${name} takes ${dmg}${absorbed ? ` (shield absorbed ${absorbed})` : ''}${armorNote} → ${Math.max(p.hp, 0)}/${p.maxHp} HP`);
@@ -664,12 +670,14 @@ function resolveCard(s: GameState, events: GameEvent[], me: Player, def: CardDef
     case 'plate': {
       const old = piece!.armor;
       piece!.armor = def.id;
+      piece!.armorPool = ARMORS[def.id].pool ?? 0;
       log(s, events, `  ${targetName(s, target!)} puts on ${ARMORS[def.id].name}${old ? ` (replacing ${ARMORS[old].name})` : ''}.`);
       break;
     }
     case 'armor_rend': {
       const lost = [piece!.armor ? ARMORS[piece!.armor].name : '', piece!.shield ? `${piece!.shield}-pt shield` : ''].filter(Boolean).join(' and ');
       piece!.armor = null;
+      piece!.armorPool = 0;
       piece!.shield = 0;
       log(s, events, `  ${targetName(s, target!)} ${lost ? `loses its ${lost}` : 'had nothing to rend'}.`);
       break;

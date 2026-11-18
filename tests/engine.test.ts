@@ -507,17 +507,26 @@ describe('armor', () => {
     expect(r.armor).toBe('breastplate');
   });
 
-  it('Gambeson blocks up to 2 of the next hit, then is gone', () => {
+  it('Gambesson soaks 4 damage in total, then is gone', () => {
     const s = setup(2, 6);
     s.pieces = [];
     const r = place(s, 0, 'rook', 0, -5);
     equip(s, r, 'gambeson');
     pass(s);
     const p = place(s, 1, 'pawn', 1, -5);
+    expect(r.armorPool).toBe(4);
     const ev = applyAction(s, { type: 'attack', pieceId: p.id, target: { kind: 'piece', id: r.id } });
     const roll = ev.find((e) => e.type === 'roll')!;
-    const dmg = roll.type === 'roll' ? roll.total : 0;
-    expect(10 - r.hp).toBe(Math.max(0, dmg - 2));
+    const dmg = roll.type === 'roll' ? roll.total : 0; // pawn d4: fully soaked
+    expect(r.hp).toBe(10);
+    expect(r.armorPool).toBe(4 - dmg);
+    // a big hit uses up the rest and the excess goes through
+    const k = place(s, 1, 'king', -1, -4);
+    r.armorPool = 1;
+    s.active = null;
+    s.turnActed = false;
+    const ev2 = applyAction(s, { type: 'attack', pieceId: k.id, target: { kind: 'piece', id: r.id } });
+    void ev2;
     expect(r.armor).toBeNull();
   });
 

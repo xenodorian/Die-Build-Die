@@ -66,15 +66,15 @@ Every ability card belongs to a piece **class**, and only the right pieces can p
 | 🔨 Armor Rend | Bishop | Bishop, Queen, King | 3 | 2 | Remove all armor **and** shields from one enemy piece 🟡 within **4 hexes** of this piece |
 | ↩️ Recall | Bishop | Bishop, Queen, King | 1 | 2 | Teleport this piece next to your base and heal it 2. A carried flag is dropped where it stood |
 | 🛡️ Shield | Rook | Rook, Queen, King | 1 | 3 | 🟡 **This piece or an adjacent friendly piece** gains a 4-point shield that absorbs damage until used up |
-| 🧥 Gambeson | Rook | Rook, Queen, King | 1 | 3 | Armor on this piece: the **next** hit is reduced by up to 2, then it's gone |
+| 🧥 Gambesson | Rook | Rook, Queen, King | 1 | 3 | Armor on this piece: soaks up the next **4 damage in total** (across any number of hits), then it's gone |
 | 🦺 Breastplate | Rook | Rook, Queen, King | 3 | 2 | Armor on this piece: **every** hit is reduced by 4 |
 | 🛡 Plate Armor | Rook | Rook, Queen, King | 5 | 1 | Armor on this piece: **every** hit is reduced by 6 |
 | 🏰 Fortify | Rook | Rook, Queen, King | 2 | 2 | Repair your base 6 HP (up to 20) |
 | 🎴 Rally | Rook | Rook, Queen, King | 1 | 2 | Draw 2 cards (then discard down to 7 if needed) |
 | ⬆️ Promote | Queen | Queen, King | 2 | 2 | 🟡 Turn a friendly **Pawn within 3 hexes** of this piece into a full-HP Knight |
 
-**Armor:** a piece wears at most one armor; equipping another **replaces** it. The armor goes on the piece that plays the card. **Shield absorbs first, then armor reduces whatever gets through.**
-🟡 Armor works against **every hit**: attacks, Fire Bolt, Fireball, and **each arrow separately**. Gambeson is used up by the next hit that gets past the shield (a hit fully soaked by the shield doesn't use it). Damage aimed at a base and taken by the piece standing on it is reduced by that piece's armor too.
+**Armor:** a piece wears at most one armor; equipping another **replaces** it (Gambesson ↔ Breastplate ↔ Plate). The armor goes on the piece that plays the card. A **Shield stacks with any armor**: the **shield absorbs first, then armor** handles whatever gets through. Armor Rend strips both.
+🟡 Armor works against **every hit**: attacks, Fire Bolt, Fireball, and **each arrow separately**. Damage aimed at a base and taken by the piece standing on it is reduced by that piece's armor too.
 
 🟡 **Cordon of Arrows details:** only enemy **pieces** can be targets (not bases). You assign all 4 arrows before rolling; an arrow aimed at a piece that an earlier arrow already killed is wasted. Shields absorb arrows normally.
 

@@ -303,7 +303,7 @@ function unitPanel(): string {
   return `<div class="selinfo" style="--pc:${me.color}">
       <div class="big">${st.glyph} ${st.name}${s.flag.carrier === sel.id ? ' 🚩' : ''}</div>
       <div>❤ ${sel.hp}/${sel.maxHp}${sel.shield ? ` · 🔵 shield ${sel.shield}` : ''} · 🎲 d${st.die}${sel.bonusDamage ? ` +${sel.bonusDamage}` : ''}</div>
-      ${sel.armor ? `<div>${ARMORS[sel.armor].icon} ${ARMORS[sel.armor].name}: −${ARMORS[sel.armor].reduce} ${ARMORS[sel.armor].oneShot ? 'on the next hit' : 'on every hit'}</div>` : ''}
+      ${sel.armor ? `<div>${ARMORS[sel.armor].icon} ${ARMORS[sel.armor].name}: ${ARMORS[sel.armor].pool ? `soaks ${sel.armorPool ?? 0} more damage` : `−${ARMORS[sel.armor].reduce} on every hit`}</div>` : ''}
       <div>Moves ${sel.movesLeft} · Attacks ${sel.attacksLeft} · Cards ${Math.max(0, RULES.cardsPerPieceTurn - s.cardsUsed)}</div>
       <div>${lock}</div>
     </div>${s.turnActed ? '' : baseBtn}`;

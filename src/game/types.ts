@@ -19,6 +19,8 @@ export interface Piece {
   bonusDamage: number;
   /** Equipped armor (Rook cards); at most one. */
   armor?: ArmorKind | null;
+  /** Points left in a pool armor (Gambesson). */
+  armorPool?: number;
 }
 
 export interface Player {
