@@ -48,11 +48,12 @@ export type Targeting =
   | 'summonHex'      // an empty hex on/next to your base
   | 'friendlyPiece'
   | 'friendlyPawn'
-  | 'enemyInRange';  // enemy piece or base within `range` of one of your pieces
+  | 'enemyInRange'   // enemy piece or base within `range` of one of your pieces
+  | 'areaHex';       // any hex within `range` of one of your pieces listed in `castFrom`
 
 export type CardId =
   | 'summon_pawn' | 'summon_knight' | 'summon_bishop' | 'summon_rook' | 'summon_queen' | 'summon_king'
-  | 'fireball' | 'sharpen' | 'frenzy'
+  | 'firebolt' | 'fireball' | 'sharpen' | 'frenzy'
   | 'shield' | 'heal' | 'fortify'
   | 'haste' | 'promote' | 'rally' | 'recall';
 
@@ -69,6 +70,10 @@ export interface CardDef {
   amount?: number;
   dice?: { count: number; die: Die };
   range?: number;
+  /** Area cards: blast radius around the target hex. */
+  radius?: number;
+  /** Area cards: which of your piece kinds the target must be within `range` of. */
+  castFrom?: PieceKind[];
   /** Copies of this card in each player's deck. */
   copies: number;
 }
@@ -83,7 +88,8 @@ export const CARDS: Record<CardId, CardDef> = {
   summon_king:   { id: 'summon_king',   name: 'King',   category: 'piece', cost: 6, targeting: 'summonHex', summons: 'king',   copies: 1, text: 'Summon a King. 20 HP, d20. Moves 1 step, straight or diagonal.' },
 
   // ---- Offensive ----
-  fireball: { id: 'fireball', name: 'Fireball', category: 'offense', cost: 2, targeting: 'enemyInRange', range: 3, dice: { count: 2, die: 4 }, copies: 3, text: 'Deal 2d4 to an enemy piece or base within 3 hexes of one of your pieces.' },
+  firebolt: { id: 'firebolt', name: 'Fire Bolt', category: 'offense', cost: 2, targeting: 'enemyInRange', range: 3, dice: { count: 2, die: 4 }, copies: 3, text: 'Deal 2d4 to an enemy piece or base within 3 hexes of one of your pieces.' },
+  fireball: { id: 'fireball', name: 'Fireball', category: 'offense', cost: 7, targeting: 'areaHex', range: 10, radius: 4, castFrom: ['queen', 'bishop'], dice: { count: 8, die: 6 }, copies: 1, text: 'Pick a hex within 10 of your Queen or Bishop. Roll 8d6: EVERY piece (yours too) and base within 4 hexes takes it.' },
   sharpen:  { id: 'sharpen',  name: 'Sharpen',  category: 'offense', cost: 1, targeting: 'friendlyPiece', amount: 2, copies: 3, text: "Your piece's next attack deals +2 damage." },
   frenzy:   { id: 'frenzy',   name: 'Frenzy',   category: 'offense', cost: 2, targeting: 'friendlyPiece', amount: 1, copies: 2, text: 'Your piece may attack one extra time this turn.' },
 
@@ -125,7 +131,7 @@ export const RULES = {
   /** Energy pays for cards. You refill to min(start + (turn-1) * perTurn, max) each turn. Unspent energy is lost. */
   energyStart: 2,
   energyPerTurn: 1,
-  energyMax: 6,
+  energyMax: 7,
 
   /** Freshly summoned pieces cannot move or attack until your next turn. */
   summoningSickness: true,
@@ -133,15 +139,21 @@ export const RULES = {
   movesPerTurn: 1,
   attacksPerTurn: 1,
 
-  /** An enemy base cannot be attacked while one of its owner's pieces stands on it. */
-  garrisonProtectsBase: true,
+  /**
+   * Garrison: while one of its owner's pieces stands on a base, damage aimed at the base hits
+   * that piece instead. Excess damage does NOT spill over onto the base.
+   * In an area blast the garrison takes its own hit and the base behind it takes nothing.
+   */
+  garrisonAbsorbsBaseDamage: true,
 
   /**
-   * How the centre hex wins:
-   *  'hold'  – start your turn with your piece still on the centre (it survived a full round).
-   *  'enter' – win the moment a piece steps onto the centre.
+   * Capture the flag: the flag starts on the centre hex. A piece that stops on it or slides
+   * through it picks it up. Bring the carrier onto your own base hex to win. If the carrier dies,
+   * the flag drops on its hex. Recall makes the carrier drop the flag where it stood.
    */
-  centerWin: 'hold' as 'hold' | 'enter',
+  flagStart: { q: 0, r: 0 },
+  /** Sliding pieces (Rook/Bishop/Queen) grab the flag when they pass over it, not only when they stop on it. */
+  flagPickupWhenPassing: true,
   /** Also win by being the last player with a base standing. */
   lastBaseStandingWins: true,
 };

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CARDS, PIECES, RULES } from '../src/game/config';
 import {
-  CENTER, applyAction, canPlayCard, legalAttacks, legalMoves, newGame, pieceAt, summonHexes,
+  CENTER, applyAction, canPlayCard, cardTargets, flagCarrier, flagHex, legalAttacks, legalMoves, newGame, pieceAt, summonHexes,
 } from '../src/game/engine';
 import { corners, hex, hexDistance, hexEq } from '../src/game/hex';
 import type { GameState, Piece } from '../src/game/types';
@@ -150,18 +150,28 @@ describe('combat', () => {
     expect(legalAttacks(s, a)).toHaveLength(0);
   });
 
-  it('a garrisoned base cannot be attacked; destroying a base eliminates its owner', () => {
+  it('a piece on its own base takes base damage first; excess does not spill over', () => {
+    const s = setup(2, 3);
+    const base = s.players[1].base;
+    const guard = s.pieces.find((p) => p.owner === 1)!; // Gold's pawn starts on its base
+    s.pieces = [guard];
+    const atk = place(s, 0, 'king', base.q + 1, base.r - 1);
+    expect(legalAttacks(s, atk).some((t) => t.kind === 'base')).toBe(true);
+    applyAction(s, { type: 'attack', pieceId: atk.id, target: { kind: 'base', owner: 1 } });
+    expect(s.players[1].baseHp).toBe(RULES.baseHp);
+    expect(guard.hp < 4 || !s.pieces.includes(guard)).toBe(true);
+  });
+
+  it('destroying an unguarded base eliminates its owner', () => {
     const s = setup(2);
     const base = s.players[1].base;
-    s.pieces = s.pieces.filter((p) => p.owner === 1);
+    s.pieces = [];
     const atk = place(s, 0, 'king', base.q + 1, base.r - 1);
-    expect(legalAttacks(s, atk).some((t) => t.kind === 'base')).toBe(false);
-    s.pieces = s.pieces.filter((p) => p.owner === 0);
-    expect(legalAttacks(s, atk).some((t) => t.kind === 'base')).toBe(true);
     s.players[1].baseHp = 1;
     applyAction(s, { type: 'attack', pieceId: atk.id, target: { kind: 'base', owner: 1 } });
     expect(s.players[1].alive).toBe(false);
     expect(s.winner).toBe(0);
+    expect(s.winReason).toBe('last base standing');
   });
 });
 
@@ -181,14 +191,132 @@ describe('cards and winning', () => {
     expect(CARDS.summon_knight.cost).toBe(2);
   });
 
-  it('holding the centre for a round wins', () => {
+  it('energy tops out at 7 and costs run 1-7 with Fireball the only 7', () => {
+    expect(RULES.energyMax).toBe(7);
+    const costs = Object.values(CARDS).map((c) => c.cost);
+    expect(Math.min(...costs)).toBe(1);
+    expect(Object.values(CARDS).filter((c) => c.cost === 7).map((c) => c.id)).toEqual(['fireball']);
+    for (const c of Object.values(CARDS)) if (c.id !== 'fireball') expect(c.cost).toBeLessThanOrEqual(6);
+    expect(CARDS.firebolt.name).toBe('Fire Bolt');
+    const s = setup(2);
+    for (let i = 0; i < 20; i++) applyAction(s, { type: 'endTurn' });
+    expect(s.players[0].energy).toBe(7);
+  });
+
+  it('Fireball needs a Queen or Bishop and only targets hexes within 10 of one', () => {
+    const s = setup(2);
+    s.pieces = [];
+    const me = s.players[0];
+    me.hand = [{ uid: 777, id: 'fireball' }];
+    me.energy = 7;
+    expect(canPlayCard(s, 0, me.hand[0])).toBe(false);
+    const b = place(s, 0, 'bishop', 0, -5);
+    const targets = cardTargets(s, 0, CARDS.fireball);
+    expect(targets.length).toBeGreaterThan(0);
+    for (const t of targets) expect(t.kind === 'hex' && hexDistance(t.hex, b.pos) <= 10).toBe(true);
+  });
+
+  it('Fireball hits every piece (friend and foe) and unguarded bases within 4', () => {
+    const s = setup(2, 9);
+    s.pieces = [];
+    const me = s.players[0];
+    const caster = place(s, 0, 'queen', 0, -9); // 5 away from blast centre: safe
+    const friend = place(s, 0, 'king', 0, -1);
+    const foe = place(s, 1, 'king', 2, 2);
+    const far = place(s, 1, 'pawn', 0, 8);
+    me.hand = [{ uid: 778, id: 'fireball' }];
+    me.energy = 7;
+    const events = applyAction(s, { type: 'playCard', cardUid: 778, target: { kind: 'hex', hex: hex(0, 0) } });
+    const roll = events.find((e) => e.type === 'roll')!;
+    expect(roll.type === 'roll' && roll.dice).toEqual([6, 6, 6, 6, 6, 6, 6, 6]);
+    const dmg = roll.type === 'roll' ? roll.total : 0;
+    expect(dmg).toBeGreaterThanOrEqual(8);
+    const hpAfter = (p: Piece) => (s.pieces.includes(p) ? p.hp : 0);
+    expect(hpAfter(friend)).toBe(Math.max(0, 20 - dmg));
+    expect(hpAfter(foe)).toBe(Math.max(0, 20 - dmg));
+    expect(caster.hp).toBe(12);
+    expect(far.hp).toBe(4);
+    expect(me.energy).toBe(0);
+  });
+
+  it('a garrison shields its base from a Fireball', () => {
+    const s = setup(2, 11);
+    const gold = s.players[1];
+    s.pieces = s.pieces.filter((p) => p.owner === 1); // Gold pawn on its base
+    place(s, 0, 'bishop', 0, 0);
+    s.players[0].hand = [{ uid: 779, id: 'fireball' }];
+    s.players[0].energy = 7;
+    applyAction(s, { type: 'playCard', cardUid: 779, target: { kind: 'hex', hex: gold.base } });
+    expect(gold.baseHp).toBe(RULES.baseHp);
+  });
+});
+
+describe('capture the flag', () => {
+  it('starts on the centre with nobody carrying it', () => {
+    const s = setup(4);
+    expect(flagHex(s)).toEqual(CENTER);
+    expect(flagCarrier(s)).toBeUndefined();
+  });
+
+  it('a piece that steps on the flag picks it up and carries it', () => {
     const s = setup(2);
     s.pieces = [];
     const p = place(s, 0, 'pawn', 1, 0);
     applyAction(s, { type: 'move', pieceId: p.id, to: CENTER });
+    expect(flagCarrier(s)?.id).toBe(p.id);
     expect(s.winner).toBe(null);
-    applyAction(s, { type: 'endTurn' });
-    applyAction(s, { type: 'endTurn' });
+  });
+
+  it('a sliding Rook grabs the flag when passing over it', () => {
+    const s = setup(2);
+    s.pieces = [];
+    const r = place(s, 0, 'rook', -2, 0);
+    applyAction(s, { type: 'move', pieceId: r.id, to: hex(1, 0) });
+    expect(flagCarrier(s)?.id).toBe(r.id);
+  });
+
+  it('a Knight landing on the flag grabs it', () => {
+    const s = setup(2);
+    s.pieces = [];
+    const k = place(s, 0, 'knight', -1, -2);
+    applyAction(s, { type: 'move', pieceId: k.id, to: hex(0, 0) });
+    expect(flagCarrier(s)?.id).toBe(k.id);
+  });
+
+  it('the flag drops where its carrier dies', () => {
+    const s = setup(2);
+    s.pieces = [];
+    const carrier = place(s, 1, 'pawn', 3, 3);
+    s.flag = { pos: null, carrier: carrier.id };
+    carrier.hp = 1;
+    const k = place(s, 0, 'king', 3, 2);
+    applyAction(s, { type: 'attack', pieceId: k.id, target: { kind: 'piece', id: carrier.id } });
+    expect(flagCarrier(s)).toBeUndefined();
+    expect(flagHex(s)).toEqual(hex(3, 3));
+  });
+
+  it('bringing the flag onto your own base wins', () => {
+    const s = setup(2);
+    s.pieces = [];
+    const base = s.players[0].base;
+    const p = place(s, 0, 'pawn', base.q + 1, base.r);
+    expect(hexDistance(p.pos, base)).toBe(1);
+    s.flag = { pos: null, carrier: p.id };
+    applyAction(s, { type: 'move', pieceId: p.id, to: base });
     expect(s.winner).toBe(0);
+    expect(s.winReason).toMatch(/captured the flag/);
+  });
+
+  it('Recall makes the carrier drop the flag', () => {
+    const s = setup(2);
+    s.pieces = [];
+    const p = place(s, 0, 'rook', 0, -3);
+    s.flag = { pos: null, carrier: p.id };
+    s.players[0].hand = [{ uid: 555, id: 'recall' }];
+    s.players[0].energy = 1;
+    applyAction(s, { type: 'playCard', cardUid: 555, target: { kind: 'piece', id: p.id } });
+    expect(flagCarrier(s)).toBeUndefined();
+    expect(flagHex(s)).toEqual(hex(0, -3));
+    expect(s.winner).toBe(null);
   });
 });

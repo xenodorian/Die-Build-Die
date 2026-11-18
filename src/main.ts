@@ -1,7 +1,8 @@
 import './ui/style.css';
 import { CARDS, PIECES, PLAYER_COLORS, PLAYER_NAMES, RULES, type CardCategory } from './game/config';
 import {
-  CENTER, applyAction, baseAt, canPlayCard, cardTargets, currentPlayer, legalAttacks, legalMoves, newGame, pieceAt,
+  CENTER, applyAction, areaVictims, baseAt, canPlayCard, cardTargets, currentPlayer, flagCarrier, flagHex, legalAttacks, legalMoves,
+  newGame, pieceAt,
   pieceById, sameTarget, targetName,
 } from './game/engine';
 import { chooseBotAction } from './game/bot';
@@ -40,7 +41,7 @@ function renderSetup() {
   app.innerHTML = `
   <div class="setup">
     <h1 class="logo">Die <span>Build</span> Die</h1>
-    <p class="tagline">Chess pieces. A deck of cards. A fistful of dice. First to hold the centre wins.</p>
+    <p class="tagline">Chess pieces. A deck of cards. A fistful of dice. Grab the flag from the centre and carry it home.</p>
     <div class="setup-card">
       <label class="row">Players
         <div class="count">${[2, 3, 4, 5, 6].map((k) => `<button data-count="${k}" class="${k === n ? 'on' : ''}">${k}</button>`).join('')}</div>
@@ -111,7 +112,7 @@ const humansCount = () => ui.state!.players.filter((p) => !p.isBot && p.alive).l
 const needsHandoff = () => ui.hideHands && !currentPlayer(ui.state!).isBot && humansCount() > 1;
 const CATEGORY_LABEL: Record<CardCategory, string> = { piece: 'Piece', offense: 'Offense', defense: 'Defense', special: 'Special' };
 const CATEGORY_ICON: Record<string, string> = {
-  fireball: '🔥', sharpen: '🗡️', frenzy: '⚔️', shield: '🛡️', heal: '✚', fortify: '🏰', haste: '💨', promote: '⬆️', rally: '🎴', recall: '↩️',
+  firebolt: '🔥', fireball: '☄️', sharpen: '🗡️', frenzy: '⚔️', shield: '🛡️', heal: '✚', fortify: '🏰', haste: '💨', promote: '⬆️', rally: '🎴', recall: '↩️',
 };
 
 // ------------------------------------------------------------------ highlights
@@ -180,8 +181,10 @@ function renderBoard(hl: HL): string {
 
   let overlays = '';
   // Centre marker
-  const c = px(CENTER);
-  overlays += `<text class="center-star" x="${c.x}" y="${c.y + 7}">★</text>`;
+  if (s.flag.pos) {
+    const f = px(s.flag.pos);
+    overlays += `<text class="flag-icon" x="${f.x + 2}" y="${f.y + 8}">🚩</text>`;
+  }
   // Bases
   for (const p of s.players) {
     const { x, y } = px(p.base);
@@ -217,6 +220,7 @@ function renderBoard(hl: HL): string {
       <rect x="${x - 12}" y="${y + 13}" width="24" height="3.5" rx="1.7" class="hpbg"/>
       <rect x="${x - 12}" y="${y + 13}" width="${24 * frac}" height="3.5" rx="1.7" class="hp ${frac <= 0.34 ? 'low' : ''}"/>
       ${p.bonusDamage ? `<text class="badge" x="${x + 12}" y="${y - 9}">+${p.bonusDamage}</text>` : ''}
+      ${s.flag.carrier === p.id ? `<circle cx="${x}" cy="${y}" r="${big ? 19 : 17.5}" class="carrier-ring"/><text class="carrier-flag" x="${x + 13}" y="${y - 7}">🚩</text>` : ''}
     </g>`;
   }
   // Attack + card target highlights (drawn on top)
@@ -231,23 +235,35 @@ function renderBoard(hl: HL): string {
   return `<svg class="board" viewBox="${-w / 2} ${-h / 2} ${w} ${h}" preserveAspectRatio="xMidYMid meet">
     <defs><radialGradient id="glow"><stop offset="0" stop-color="#ffe9a8" stop-opacity=".55"/><stop offset="1" stop-color="#ffe9a8" stop-opacity="0"/></radialGradient></defs>
     <circle cx="0" cy="0" r="${S * 4}" fill="url(#glow)"/>
-    ${cells}${overlays}${hits}</svg>`;
+    ${cells}${overlays}<g id="aoe"></g>${hits}</svg>`;
 }
 
 // ------------------------------------------------------------------ panels
 
-function renderCard(card: Card, playable: boolean, pending: boolean) {
+function renderCard(card: Card, playable: boolean, pending: boolean, discardable: boolean) {
   const d = CARDS[card.id];
   const icon = d.summons ? PIECES[d.summons].glyph : CATEGORY_ICON[d.id] ?? '✦';
   const stats = d.summons ? `<div class="stats"><span>❤ ${PIECES[d.summons].hp}</span><span>🎲 d${PIECES[d.summons].die}</span></div>` : '';
   return `<button class="card cat-${d.category} ${playable ? 'playable' : 'dim'} ${pending ? 'pending' : ''}" data-card="${card.uid}" title="${escapeHtml(d.text)}">
     <span class="cost">${d.cost}</span>
+    ${discardable ? `<span class="discard" data-discard="${card.uid}" title="Discard this card">✕</span>` : ''}
     <span class="cat">${CATEGORY_LABEL[d.category]}</span>
     <span class="icon">${icon}</span>
     <span class="name">${d.name}</span>
     ${stats}
     <span class="text">${d.text}</span>
   </button>`;
+}
+
+function flagStatus(): string {
+  const s = ui.state!;
+  const c = flagCarrier(s);
+  if (c) {
+    const o = s.players[c.owner];
+    return `🚩 <b style="color:${o.color}">${escapeHtml(o.name)}</b>'s ${PIECES[c.kind].name} carries the flag. ${hexDistance(c.pos, o.base)} hexes from home.`;
+  }
+  const f = flagHex(s);
+  return f && hexEq(f, CENTER) ? '🚩 The flag waits on the centre hex. Grab it and bring it to your base!' : `🚩 The flag lies on the ground at (${f?.q},${f?.r}). Anyone can grab it.`;
 }
 
 function renderSidebar() {
@@ -277,6 +293,7 @@ function renderSidebar() {
   const logLines = s.log.slice(-80).map((l) => `<div class="${l.startsWith('—') ? 'turn' : l.startsWith('  ') ? 'sub' : ''}">${escapeHtml(l)}</div>`).join('');
   return `<aside class="side">
     <div class="panel players">${players}</div>
+    <div class="panel flag">${flagStatus()}</div>
     <div class="panel info">${info}</div>
     <div class="panel log" id="log">${logLines}</div>
   </aside>`;
@@ -288,7 +305,7 @@ function renderGame() {
   const hl = highlights();
   const showHand = !me.isBot && ui.revealed;
   const hand = showHand
-    ? me.hand.map((c) => renderCard(c, !ui.busy && canPlayCard(s, s.current, c), c.uid === ui.pendingCard)).join('') || '<div class="empty">No cards in hand</div>'
+    ? me.hand.map((c) => renderCard(c, !ui.busy && canPlayCard(s, s.current, c), c.uid === ui.pendingCard, !ui.busy && s.winner === null)).join('') || '<div class="empty">No cards in hand</div>'
     : `<div class="empty">${me.isBot ? `${escapeHtml(me.name)} (bot) is thinking…` : 'Hand hidden'}</div>`;
   const energyPips = Array.from({ length: RULES.energyMax }, (_, i) => `<span class="pip ${i < me.energy ? 'on' : ''}"></span>`).join('');
 
@@ -349,8 +366,20 @@ function bindGame() {
   app.querySelectorAll<HTMLElement>('[data-card]').forEach((el) =>
     el.addEventListener('click', () => onCardClick(Number(el.dataset.card))),
   );
-  app.querySelectorAll<SVGElement>('.hit').forEach((el) =>
-    el.addEventListener('click', () => onHexClick({ q: Number(el.dataset.q), r: Number(el.dataset.r) })),
+  app.querySelectorAll<SVGElement>('.hit').forEach((el) => {
+    const h = { q: Number(el.dataset.q), r: Number(el.dataset.r) };
+    el.addEventListener('click', () => onHexClick(h));
+    el.addEventListener('mouseenter', () => previewArea(h));
+  });
+  app.querySelectorAll<HTMLElement>('[data-discard]').forEach((el) =>
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const s2 = ui.state!;
+      if (ui.busy || currentPlayer(s2).isBot || s2.winner !== null) return;
+      const uid = Number(el.dataset.discard);
+      const card = currentPlayer(s2).hand.find((c) => c.uid === uid);
+      if (card && confirm(`Discard ${CARDS[card.id].name}?`)) void doAction({ type: 'discard', cardUid: uid });
+    }),
   );
 }
 
@@ -371,6 +400,25 @@ function onCardClick(uid: number) {
   ui.pendingCard = uid;
   ui.selectedPiece = null;
   renderGame();
+}
+
+/** While an area card is selected, outline its blast radius under the mouse. */
+function previewArea(h: Hex) {
+  const g = document.getElementById('aoe');
+  if (!g) return;
+  const s = ui.state!;
+  const card = ui.pendingCard !== null ? currentPlayer(s).hand.find((c) => c.uid === ui.pendingCard) : undefined;
+  const def = card ? CARDS[card.id] : undefined;
+  if (!def || def.targeting !== 'areaHex' || !highlights().cardTargets.some((t) => t.kind === 'hex' && hexEq(t.hex, h))) {
+    g.innerHTML = '';
+    return;
+  }
+  const r = def.radius ?? 0;
+  const { pieces, bases } = areaVictims(s, h, r);
+  g.innerHTML =
+    hexagonBoard(RULES.boardRadius).filter((x) => hexDistance(x, h) <= r).map((x) => `<polygon class="aoe" points="${hexPoints(x, S - 1)}"/>`).join('') +
+    pieces.map((p) => { const c = px(p.pos); return `<circle class="aoe-victim" cx="${c.x}" cy="${c.y}" r="16"/>`; }).join('') +
+    bases.map((b) => { const c = px(b.base); return `<circle class="aoe-victim" cx="${c.x}" cy="${c.y}" r="18"/>`; }).join('');
 }
 
 function onHexClick(h: Hex) {

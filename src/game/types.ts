@@ -44,6 +44,7 @@ export type Action =
   | { type: 'move'; pieceId: number; to: Hex }
   | { type: 'attack'; pieceId: number; target: Target }
   | { type: 'playCard'; cardUid: number; target?: Target }
+  | { type: 'discard'; cardUid: number }
   | { type: 'endTurn' };
 
 export type GameEvent =
@@ -62,6 +63,8 @@ export interface GameState {
   round: number;
   nextId: number;
   rngState: number;
+  /** The flag lies on `pos` when nobody carries it; otherwise `carrier` is the carrying piece's id. */
+  flag: { pos: Hex | null; carrier: number | null };
   winner: number | null;
   winReason: string | null;
   log: string[];

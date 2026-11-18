@@ -2,7 +2,8 @@
  * Headless bot simulation: plays many full games and reports how they end.
  * Usage: npm run simulate -- [games=200] [players=all] [--random]
  *   default   greedy bot (src/game/bot.ts)
- *   --random  every player picks uniformly random legal actions (ends turn 25% of the time)
+ *   --random  every player picks uniformly random legal actions (ends turn 25% of the time).
+ *             Informational only: random walkers rarely carry the flag home, so stalls are expected.
  */
 import { applyAction, newGame } from '../src/game/engine';
 import { runBotTurn } from '../src/game/bot';
@@ -47,7 +48,7 @@ for (const n of onlyPlayers) {
       reasons['unfinished'] = (reasons['unfinished'] ?? 0) + 1;
       failures++;
     } else {
-      const key = (state.winReason ?? '').replace(/with a \w+/, 'with a piece');
+      const key = (state.winReason ?? '').replace(/with a \w+/, '');
       reasons[key] = (reasons[key] ?? 0) + 1;
       winsBySeat[state.winner]++;
     }
@@ -60,8 +61,8 @@ for (const n of onlyPlayers) {
       ` | endings ${JSON.stringify(reasons)} | wins by seat ${JSON.stringify(winsBySeat)}`,
   );
 }
-console.log(`mode: ${randomMode ? 'random' : 'greedy'} | centerWin rule: '${RULES.centerWin}'`);
-if (failures) {
+console.log(`mode: ${randomMode ? 'random' : 'greedy'} | energy max ${RULES.energyMax}`);
+if (failures && !randomMode) {
   console.error(`${failures} game(s) did not finish within ${MAX_ROUNDS} rounds`);
   process.exit(1);
 }

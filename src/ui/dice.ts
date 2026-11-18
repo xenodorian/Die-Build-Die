@@ -32,11 +32,12 @@ export async function animateRoll(
   const diceEl = host.querySelector('.roll-dice') as HTMLElement;
   const totalEl = host.querySelector('.roll-total') as HTMLElement;
   const frames = fast ? 6 : 12;
+  const size = dice.length > 4 ? 54 : 72;
   for (let f = 0; f < frames; f++) {
-    diceEl.innerHTML = dice.map((d) => `<span class="spin">${dieSvg(d, 1 + Math.floor(Math.random() * d), color)}</span>`).join('');
+    diceEl.innerHTML = dice.map((d) => `<span class="spin">${dieSvg(d, 1 + Math.floor(Math.random() * d), color, size)}</span>`).join('');
     await sleep(45 + f * 6);
   }
-  diceEl.innerHTML = dice.map((d, i) => `<span class="landed">${dieSvg(d, values[i], color)}</span>`).join('');
+  diceEl.innerHTML = dice.map((d, i) => `<span class="landed">${dieSvg(d, values[i], color, size)}</span>`).join('');
   totalEl.textContent = bonus ? `${values.join(' + ')} + ${bonus} = ${total}` : dice.length > 1 ? `${values.join(' + ')} = ${total}` : `${total}`;
   await sleep(fast ? 450 : 900);
   host.classList.remove('show');

@@ -1,6 +1,6 @@
 import { CARDS, PIECES, PLAYER_COLORS, PLAYER_NAMES, RULES, buildDeckList, type CardDef, type Die, type PieceKind } from './config';
 import {
-  DIAGONALS, DIRECTIONS, KNIGHT_JUMPS, corners, hex, hexAdd, hexDistance, hexEq, hexScale, inBoard, neighbors,
+  DIAGONALS, DIRECTIONS, KNIGHT_JUMPS, corners, hex, hexAdd, hexDistance, hexEq, hexScale, hexagonBoard, inBoard, neighbors,
   type Hex,
 } from './hex';
 import { rollDie, shuffle } from './rng';
@@ -22,6 +22,7 @@ export function newGame(setups: PlayerSetup[], seed = Date.now()): { state: Game
     round: 1,
     nextId: 1,
     rngState: seed | 0,
+    flag: { pos: { ...RULES.flagStart }, carrier: null },
     winner: null,
     winReason: null,
     log: [],
@@ -113,11 +114,45 @@ export function legalMoves(s: GameState, piece: Piece): Hex[] {
   return out;
 }
 
-function baseTargetable(s: GameState, player: Player): boolean {
-  if (!player.alive) return false;
-  if (!RULES.garrisonProtectsBase) return true;
-  const guard = pieceAt(s, player.base);
-  return !(guard && guard.owner === player.index);
+/** A piece of the base owner's standing on their base (it soaks damage aimed at the base). */
+export function garrisonOf(s: GameState, player: Player): Piece | undefined {
+  if (!RULES.garrisonAbsorbsBaseDamage) return undefined;
+  const p = pieceAt(s, player.base);
+  return p && p.owner === player.index ? p : undefined;
+}
+
+function baseTargetable(_s: GameState, player: Player): boolean {
+  return player.alive;
+}
+
+/** Where the flag is right now (the carrier's hex, or where it lies). */
+export function flagHex(s: GameState): Hex | null {
+  if (s.flag.carrier !== null) return pieceById(s, s.flag.carrier)?.pos ?? null;
+  return s.flag.pos;
+}
+
+export const flagCarrier = (s: GameState): Piece | undefined =>
+  s.flag.carrier === null ? undefined : pieceById(s, s.flag.carrier);
+
+/** Hexes a move passes over between `from` and `to` (excluding `from`, including `to`). Jumps only touch `to`. */
+export function movePath(from: Hex, to: Hex): Hex[] {
+  for (const dirs of [DIRECTIONS, DIAGONALS]) {
+    for (const d of dirs) {
+      for (let k = 1; k <= RULES.boardRadius * 2; k++) {
+        if (hexEq(hexAdd(from, hexScale(d, k)), to)) {
+          return Array.from({ length: k }, (_, i) => hexAdd(from, hexScale(d, i + 1)));
+        }
+      }
+    }
+  }
+  return [to];
+}
+
+/** Board hexes an area card may be centred on. */
+function areaTargets(s: GameState, owner: number, def: CardDef): Hex[] {
+  const casters = s.pieces.filter((p) => p.owner === owner && (!def.castFrom || def.castFrom.includes(p.kind)));
+  if (!casters.length) return [];
+  return hexagonBoard(RULES.boardRadius).filter((h) => casters.some((c) => hexDistance(c.pos, h) <= (def.range ?? 0)));
 }
 
 /** Enemy pieces and bases within `range` of hex `from`, for attacker `owner`. */
@@ -159,6 +194,8 @@ export function cardTargets(s: GameState, owner: number, def: CardDef): Target[]
       return mine.filter((p) => p.kind === 'pawn').map((p) => ({ kind: 'piece', id: p.id }));
     case 'enemyInRange':
       return enemiesNear(s, mine.map((p) => p.pos), def.range ?? 1, owner);
+    case 'areaHex':
+      return areaTargets(s, owner, def).map((h) => ({ kind: 'hex', hex: h }));
   }
 }
 
@@ -251,13 +288,6 @@ function declareWin(s: GameState, events: GameEvent[], player: number, reason: s
 
 function startTurn(s: GameState, events: GameEvent[]) {
   const me = currentPlayer(s);
-  if (RULES.centerWin === 'hold') {
-    const p = pieceAt(s, CENTER);
-    if (p && p.owner === me.index) {
-      declareWin(s, events, me.index, `held the centre with a ${PIECES[p.kind].name}`);
-      return;
-    }
-  }
   me.turnsTaken++;
   events.push({ type: 'turnStart', player: me.index, round: s.round });
   log(s, events, `— Round ${s.round}: ${me.name}'s turn —`, me.index);
@@ -270,10 +300,35 @@ function startTurn(s: GameState, events: GameEvent[]) {
   }
 }
 
+/** Remove a piece from the board; a carried flag drops on its hex. */
+function removePiece(s: GameState, events: GameEvent[], p: Piece) {
+  s.pieces = s.pieces.filter((x) => x !== p);
+  if (s.flag.carrier === p.id) {
+    s.flag = { pos: p.pos, carrier: null };
+    log(s, events, `  🚩 The flag drops at (${p.pos.q},${p.pos.r}).`);
+  }
+}
+
+/** Give the flag to `p` if it is lying on any hex of `path`. */
+function tryPickUp(s: GameState, events: GameEvent[], p: Piece, path: Hex[]) {
+  if (s.flag.carrier !== null || !s.flag.pos) return;
+  const hit = path.some((h) => hexEq(h, s.flag.pos!));
+  if (!hit) return;
+  s.flag = { pos: null, carrier: p.id };
+  log(s, events, `🚩 ${s.players[p.owner].name}'s ${PIECES[p.kind].name} grabs the flag!`, p.owner);
+  checkFlagWin(s, events, p);
+}
+
+function checkFlagWin(s: GameState, events: GameEvent[], p: Piece) {
+  if (s.flag.carrier === p.id && hexEq(p.pos, s.players[p.owner].base)) {
+    declareWin(s, events, p.owner, `captured the flag with a ${PIECES[p.kind].name}`);
+  }
+}
+
 function eliminate(s: GameState, events: GameEvent[], who: Player) {
   who.alive = false;
   who.baseHp = 0;
-  s.pieces = s.pieces.filter((p) => p.owner !== who.index);
+  for (const p of s.pieces.filter((x) => x.owner === who.index)) removePiece(s, events, p);
   log(s, events, `💥 ${who.name}'s base is destroyed. ${who.name} is out!`, who.index);
   events.push({ type: 'eliminated', player: who.index });
   const alive = s.players.filter((p) => p.alive);
@@ -291,12 +346,19 @@ function dealDamage(s: GameState, events: GameEvent[], target: Target, amount: n
     p.hp -= dmg;
     log(s, events, `  ${name} takes ${dmg}${absorbed ? ` (shield absorbed ${absorbed})` : ''} → ${Math.max(p.hp, 0)}/${p.maxHp} HP`);
     if (p.hp <= 0) {
-      s.pieces = s.pieces.filter((x) => x !== p);
       log(s, events, `  ☠ ${name} is destroyed.`);
+      removePiece(s, events, p);
       events.push({ type: 'pieceDied', pieceId: p.id, owner: p.owner });
     }
   } else if (target.kind === 'base') {
     const pl = s.players[target.owner];
+    if (!pl.alive) return;
+    const guard = garrisonOf(s, pl);
+    if (guard) {
+      log(s, events, `  🛡 ${pl.name}'s ${PIECES[guard.kind].name} stands on the base and takes the hit.`);
+      dealDamage(s, events, { kind: 'piece', id: guard.id }, amount);
+      return;
+    }
     pl.baseHp -= amount;
     log(s, events, `  ${pl.name}'s base takes ${amount} → ${Math.max(pl.baseHp, 0)}/${RULES.baseHp} HP`);
     if (pl.baseHp <= 0) eliminate(s, events, pl);
@@ -318,13 +380,12 @@ export function applyAction(s: GameState, action: Action): GameEvent[] {
       const p = pieceById(s, action.pieceId);
       assert(p && p.owner === me.index, 'Not your piece');
       assert(legalMoves(s, p).some((h) => hexEq(h, action.to)), 'Illegal move');
+      const path = movePath(p.pos, action.to);
       p.pos = action.to;
       p.movesLeft--;
       log(s, events, `${me.name} moves ${PIECES[p.kind].name} to (${action.to.q},${action.to.r}).`, me.index);
-      if (hexEq(p.pos, CENTER)) {
-        if (RULES.centerWin === 'enter') declareWin(s, events, me.index, 'reached the centre');
-        else log(s, events, `⚑ ${me.name} takes the centre! Hold it until their next turn to win.`, me.index);
-      }
+      tryPickUp(s, events, p, RULES.flagPickupWhenPassing ? path : [action.to]);
+      checkFlagWin(s, events, p);
       break;
     }
     case 'attack': {
@@ -356,19 +417,41 @@ export function applyAction(s: GameState, action: Action): GameEvent[] {
       resolveCard(s, events, me, def, action.target);
       break;
     }
+    case 'discard': {
+      const card = me.hand.find((c) => c.uid === action.cardUid);
+      assert(card, 'Card not in hand');
+      me.hand = me.hand.filter((c) => c !== card);
+      me.discard.push(card);
+      log(s, events, `${me.name} discards ${CARDS[card.id].name}.`, me.index);
+      break;
+    }
     case 'endTurn': {
       log(s, events, `${me.name} ends their turn.`, me.index);
-      let next = s.current;
-      do {
-        next = (next + 1) % s.players.length;
-        if (next === 0) s.round++;
-      } while (!s.players[next].alive);
-      s.current = next;
-      startTurn(s, events);
+      advanceTurn(s, events);
       break;
     }
   }
+  // A player who blew up their own base (e.g. with Fireball) loses the rest of their turn.
+  if (s.winner === null && !currentPlayer(s).alive) advanceTurn(s, events);
   return events;
+}
+
+function advanceTurn(s: GameState, events: GameEvent[]) {
+  let next = s.current;
+  do {
+    next = (next + 1) % s.players.length;
+    if (next === 0) s.round++;
+  } while (!s.players[next].alive);
+  s.current = next;
+  startTurn(s, events);
+}
+
+/** Pieces and bases that an area effect centred on `center` would hit. */
+export function areaVictims(s: GameState, center: Hex, radius: number): { pieces: Piece[]; bases: Player[] } {
+  return {
+    pieces: s.pieces.filter((p) => hexDistance(p.pos, center) <= radius),
+    bases: s.players.filter((pl) => pl.alive && hexDistance(pl.base, center) <= radius),
+  };
 }
 
 function resolveCard(s: GameState, events: GameEvent[], me: Player, def: CardDef, target?: Target) {
@@ -377,11 +460,29 @@ function resolveCard(s: GameState, events: GameEvent[], me: Player, def: CardDef
     case 'summon_pawn': case 'summon_knight': case 'summon_bishop':
     case 'summon_rook': case 'summon_queen': case 'summon_king': {
       assert(target?.kind === 'hex', 'Summon needs a hex');
-      spawnPiece(s, me.index, def.summons!, target.hex, RULES.summoningSickness);
+      const np = spawnPiece(s, me.index, def.summons!, target.hex, RULES.summoningSickness);
       log(s, events, `  A ${PIECES[def.summons!].name} appears at (${target.hex.q},${target.hex.r}).`, me.index);
+      tryPickUp(s, events, np, [np.pos]);
       break;
     }
     case 'fireball': {
+      assert(target?.kind === 'hex', 'Fireball needs a hex');
+      const { pieces, bases } = areaVictims(s, target.hex, def.radius!);
+      log(s, events, `  🔥 A fireball engulfs everything within ${def.radius} hexes of (${target.hex.q},${target.hex.r})!`, me.index);
+      const dmg = roll(s, events, `${def.name} ${def.dice!.count}d${def.dice!.die}`, Array(def.dice!.count).fill(def.dice!.die), 0, me.index);
+      // Garrisons shield their base from the blast: they take their own hit only.
+      const exposed = bases.filter((pl) => !garrisonOf(s, pl));
+      for (const p of pieces) dealDamage(s, events, { kind: 'piece', id: p.id }, dmg);
+      // Enemy bases first, your own last, so a blast that wins the game is not undone by self-elimination.
+      exposed.sort((a, b) => Number(a.index === me.index) - Number(b.index === me.index));
+      for (const pl of exposed) {
+        if (s.winner !== null) break;
+        if (pl.alive) dealDamage(s, events, { kind: 'base', owner: pl.index }, dmg);
+      }
+      if (!pieces.length && !exposed.length) log(s, events, '  …it hits nothing.');
+      break;
+    }
+    case 'firebolt': {
       const dmg = roll(s, events, `${def.name} ${def.dice!.count}d${def.dice!.die}`, Array(def.dice!.count).fill(def.dice!.die), 0, me.index);
       dealDamage(s, events, target!, dmg);
       break;
@@ -429,6 +530,10 @@ function resolveCard(s: GameState, events: GameEvent[], me: Player, def: CardDef
     case 'recall': {
       const p = piece!;
       const spot = summonHexes(s, me.index).sort((a, b) => hexDistance(a, me.base) - hexDistance(b, me.base))[0];
+      if (s.flag.carrier === p.id) {
+        s.flag = { pos: p.pos, carrier: null };
+        log(s, events, `  🚩 The flag is dropped at (${p.pos.q},${p.pos.r}).`);
+      }
       if (spot) p.pos = spot;
       p.hp = Math.min(p.maxHp, p.hp + def.amount!);
       log(s, events, `  ${targetName(s, target!)} returns home and heals to ${p.hp}/${p.maxHp}.`);

@@ -68,6 +68,16 @@ a { color: var(--gold); }
 .cell.center { fill: #6b5a2a; stroke: var(--gold); stroke-width: 2; }
 .cell.base { fill: color-mix(in srgb, var(--pc) 45%, #222); stroke: var(--pc); stroke-width: 2.5; }
 .cell.base.dead { fill: #2a1d1d; stroke: #553; }
+.flag-icon { text-anchor: middle; font-size: 20px; pointer-events: none; filter: drop-shadow(0 0 6px rgba(255,80,80,.9)); animation: wave 1.6s ease-in-out infinite; transform-box: fill-box; transform-origin: 30% 100%; }
+@keyframes wave { 50% { transform: rotate(-8deg); } }
+.piece .carrier-ring { fill: none; stroke: #ff5a5a; stroke-width: 2.5; filter: drop-shadow(0 0 4px #ff5a5a); }
+.piece .carrier-flag { font-size: 17px; text-anchor: middle; }
+.aoe { fill: rgba(255,120,40,.28); stroke: rgba(255,160,60,.8); stroke-width: 1; pointer-events: none; }
+.aoe-victim { fill: none; stroke: #ffb347; stroke-width: 2.5; stroke-dasharray: 3 2; pointer-events: none; }
+.card .discard { position: absolute; top: 4px; left: 22px; font-size: 11px; color: var(--muted); opacity: 0; padding: 0 4px; border-radius: 4px; }
+.card:hover .discard { opacity: 1; }
+.card .discard:hover { color: #fff; background: #a33; }
+.panel.flag { font-size: 13.5px; line-height: 1.4; }
 .center-star { text-anchor: middle; font-size: 20px; fill: var(--gold); pointer-events: none; }
 .base-icon { text-anchor: middle; font-size: 16px; pointer-events: none; }
 .base-icon.dead { fill: #a55; font-size: 16px; }
