@@ -1,0 +1,31 @@
+{
+  "name": "die-build-die",
+  "version": "1.0.0",
+  "description": "Die Build Die: a hex board game mixing chess pieces, cards and dice",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "simulate": "tsx scripts/simulate.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xenodorian/Die-Build-Die.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/xenodorian/Die-Build-Die/issues"
+  },
+  "homepage": "https://github.com/xenodorian/Die-Build-Die#readme",
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
+  },
+  "private": true
+}
