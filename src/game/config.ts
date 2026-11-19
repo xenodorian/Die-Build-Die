@@ -126,21 +126,21 @@ export const CARDS: Record<CardId, CardDef> = {
   summon_king:   { id: 'summon_king',   name: 'Summon King',   cls: 'conjuration', category: 'conjuration', cost: 6, targeting: 'summonHex', summons: 'king',   copies: 1, text: 'Summon a King. 20 HP, d20. Moves 1 step, straight or diagonal.' },
 
   // ---- Pawn card (any piece) ----
-  heal:     { id: 'heal',     name: 'Heal',      cls: 'pawn',   category: 'defense', cost: 1, targeting: 'selfOrAdjacentFriend', dice: { count: 1, die: 6 }, copies: 4, text: 'Heal this piece or an adjacent friendly piece 1d6 HP (up to max).' },
+  heal:     { id: 'heal',     name: 'Heal',      cls: 'pawn',   category: 'defense', cost: 1, targeting: 'selfOrAdjacentFriend', dice: { count: 1, die: 6 }, copies: 4, text: 'Heal this piece or an adjacent friendly piece 1d6 HP (up to max). Needs a damaged target.' },
 
   // ---- Knight cards (Knight, King) ----
   sharpen:  { id: 'sharpen',  name: 'Sharpen',   cls: 'knight', category: 'offense', cost: 1, targeting: 'self', amount: 2, copies: 3, text: 'This piece\'s next attack deals +2 damage.' },
-  frenzy:   { id: 'frenzy',   name: 'Frenzy',    cls: 'knight', category: 'offense', cost: 2, targeting: 'self', amount: 1, copies: 2, text: 'This piece may attack one extra time this turn.' },
+  frenzy:   { id: 'frenzy',   name: 'Frenzy',    cls: 'knight', category: 'offense', cost: 2, targeting: 'self', amount: 1, copies: 2, text: 'This piece may attack one extra time this turn (2 attacks). It does not give an extra move; that is Haste.' },
   cordon:   { id: 'cordon',   name: 'Cordon of Arrows', cls: 'knight', category: 'offense', cost: 4, targeting: 'arrows', amount: 4, range: 4, dice: { count: 1, die: 8 }, copies: 2, text: 'Shoot 4 arrows, split as you like among enemy pieces within 4 hexes. Each arrow deals 1d8.' },
   shackles: { id: 'shackles', name: 'Shackles', cls: 'knight', category: 'special', cost: 2, targeting: 'self', copies: 2, text: 'Equip this piece. It may move onto an enemy piece with LESS current HP than it has: that piece is captured and held prisoner at your base. One use.' },
-  haste:    { id: 'haste',    name: 'Haste',     cls: 'knight', category: 'special', cost: 1, targeting: 'self', amount: 1, copies: 3, text: 'This piece may move one extra time this turn.' },
+  haste:    { id: 'haste',    name: 'Haste',     cls: 'knight', category: 'special', cost: 1, targeting: 'self', amount: 1, copies: 3, text: 'This piece may move one extra time this turn (2 moves). It does not give an extra attack; that is Frenzy.' },
 
   // ---- Bishop cards (Bishop, Queen, King) ----
   firebolt: { id: 'firebolt', name: 'Fire Bolt', cls: 'bishop', category: 'offense', cost: 2, targeting: 'enemyInRange', range: 3, dice: { count: 2, die: 4 }, copies: 3, text: 'Deal 2d4 to an enemy piece or base within 3 hexes of this piece.' },
   fireball: { id: 'fireball', name: 'Fireball',  cls: 'bishop', category: 'offense', cost: 7, targeting: 'areaHex', range: 5, radius: 2, dice: { count: 8, die: 6 }, copies: 1, text: 'Pick a hex within 5 of this piece. Roll 8d6: EVERY piece (yours too) and base within 2 hexes takes it.' },
   armor_rend: { id: 'armor_rend', name: 'Armor Rend', cls: 'bishop', category: 'offense', cost: 3, targeting: 'enemyPieceInRange', range: 4, copies: 2, text: 'Strip all armor and shields from an enemy piece within 4 hexes of this piece.' },
   necromancy: { id: 'necromancy', name: 'Necromancy', cls: 'bishop', category: 'special', cost: 3, targeting: 'adjacentCorpse', copies: 2, text: 'Raise a dead piece whose 💀 is next to this piece, at full HP on its skull hex. An enemy corpse rises on YOUR side. It can act from your next turn.' },
-  recall:   { id: 'recall',   name: 'Recall',    cls: 'bishop', category: 'special', cost: 1, targeting: 'self', amount: 2, copies: 2, text: 'Teleport this piece next to your base and heal it 2. A carried flag is dropped.' },
+  recall:   { id: 'recall',   name: 'Recall',    cls: 'bishop', category: 'special', cost: 1, targeting: 'self', amount: 2, copies: 2, text: 'Teleport this piece to an empty hex next to your base (onto the base hex only if none is free) and heal it 2. A carried flag is dropped.' },
 
   // ---- Rook cards (Rook, Queen, King) ----
   shield:   { id: 'shield',   name: 'Shield',    cls: 'rook',   category: 'defense', cost: 1, targeting: 'selfOrAdjacentFriend', amount: 4, copies: 3, text: 'This piece or an adjacent friendly piece gains a 4-point damage shield.' },

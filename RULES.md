@@ -36,6 +36,7 @@ Every number below lives in [`src/game/config.ts`](src/game/config.ts) — chang
    - **Piece:** it may **move once, play one card, and attack once, in any order** (e.g. attack, then move away).
    - Your other units do nothing this turn.
    - 🟡 You can switch your pick freely until the unit **does something**; then it is locked in.
+   - 🟡 **On screen:** click a piece and its move hexes, attack targets and playable cards all light up at once; do them in any order. Clicking a card starts targeting; Esc or clicking elsewhere cancels and returns to the piece. Use the **🏰 Base** button (or click your empty base) to summon. Clicking a card you can't play shows the reason (wrong piece, not enough energy, no target).
 4. **End turn.**
 
 ## Pieces
@@ -71,17 +72,17 @@ Every ability card belongs to a piece **class**, and only the right pieces can p
 ### Ability cards
 | Card | Class | Who can play it | Cost | Copies | Effect |
 |---|---|---|---|---|---|
-| ✚ Heal | Pawn | **any piece** | 1 | 4 | 🟡 Heal **this piece or an adjacent friendly piece** 1d6 (up to max) |
+| ✚ Heal | Pawn | **any piece** | 1 | 4 | 🟡 Heal **this piece or an adjacent friendly piece** 1d6 (up to max). 🟡 The target must be damaged |
 | 🗡️ Sharpen | Knight | Knight, King | 1 | 3 | This piece's next attack deals +2 |
-| ⚔️ Frenzy | Knight | Knight, King | 2 | 2 | This piece may attack one extra time this turn |
-| 💨 Haste | Knight | Knight, King | 1 | 3 | This piece may move one extra time this turn |
+| ⚔️ Frenzy | Knight | Knight, King | 2 | 2 | This piece may attack one extra time this turn (2 attacks). **Not** an extra move: that is Haste |
+| 💨 Haste | Knight | Knight, King | 1 | 3 | This piece may move one extra time this turn (2 moves). **Not** an extra attack: that is Frenzy |
 | ⛓ Shackles | Knight | Knight, King | 2 | 2 | Equip this piece. While equipped it may **move onto an enemy piece whose current HP is less than its own**: that piece is **captured** (removed from the board, not killed) and held **prisoner at your base** |
 | 🏹 Cordon of Arrows | Knight | Knight, King | 4 | 2 | Shoot **4 arrows**, split however you like among **enemy pieces** within **4 hexes** of this piece. Each arrow deals **1d8**, rolled separately |
 | 🔥 Fire Bolt | Bishop | Bishop, Queen, King | 2 | 3 | Deal 2d4 to an enemy piece or base within 3 hexes of this piece |
 | ☄️ Fireball | Bishop | Bishop, Queen, King | **7** | 1 | Pick any hex within **5** of this piece. Roll **8d6** once: **every** piece within **2 hexes** of it (19 hexes) — **yours too, even the caster** — and every base there takes that much |
 | 🔨 Armor Rend | Bishop | Bishop, Queen, King | 3 | 2 | Remove all armor **and** shields from one enemy piece 🟡 within **4 hexes** of this piece |
 | 💀 Necromancy | Bishop | Bishop, Queen, King | 3 | 🟡 2 | Raise a dead piece whose **💀 skull is next to this piece**: it returns **on its skull hex** (must be empty) at **full HP**. 🟡 An **enemy** corpse rises on **your** side. 🟡 It can't act until your next turn |
-| ↩️ Recall | Bishop | Bishop, Queen, King | 1 | 2 | Teleport this piece next to your base and heal it 2. A carried flag is dropped where it stood |
+| ↩️ Recall | Bishop | Bishop, Queen, King | 1 | 2 | Teleport this piece to an 🟡 **empty hex next to** your base (onto the base hex only if none is free) and heal it 2. A carried flag is dropped where it stood |
 | 🛡️ Shield | Rook | Rook, Queen, King | 1 | 3 | 🟡 **This piece or an adjacent friendly piece** gains a 4-point shield that absorbs damage until used up |
 | 🧥 Gambeson | Rook | Rook, Queen, King | 1 | 3 | Armor on this piece: soaks up the next **4 damage in total** (across any number of hits), then it's gone |
 | 🦺 Breastplate | Rook | Rook, Queen, King | 3 | 2 | Armor on this piece: **every** hit is reduced by 4 |
@@ -114,6 +115,8 @@ Every ability card belongs to a piece **class**, and only the right pieces can p
 🟡 **Promotion details:** these six are the only promotions. The promoted piece gets the new type's full HP (and its die and movement) and keeps its shield, armor, shackles, Sharpen bonus, the flag, and any move/attack it hasn't used this turn. The caster can't promote itself. A piece promoted to a Rook or King counts as a builder for a ruined base.
 
 **💀 Skulls:** every piece that dies leaves a skull on its hex, marked with its owner's colour and remembering its type. Skulls are only markers: anything can move over or onto them. Several deaths on one hex stack up, and Necromancy raises the most recent one. Captured prisoners aren't dead and leave no skull. 🟡 Pieces removed because their player was knocked out leave no skull. 🟡 A corpse raised onto the flag's hex picks up the flag.
+
+See **[docs/CARD_AUDIT.md](docs/CARD_AUDIT.md)** for the card-by-card audit (text vs engine vs UI) and its tests.
 
 ## Bases
 - Bases have 20 HP and can be attacked by adjacent enemy pieces and by Fire Bolt and Fireball.

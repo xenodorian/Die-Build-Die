@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CARDS, PIECES, RULES, canClassBeUsedBy } from '../src/game/config';
+import { ARMORS, CARDS, PIECES, RULES, canClassBeUsedBy } from '../src/game/config';
 import {
   CENTER, applyAction, canBeUnit, hasBuilder, canPlayCard, cardTargets, legalActions, flagCarrier, flagHex, legalAttacks, legalMoves, newGame, pieceAt, summonHexes,
 } from '../src/game/engine';
@@ -979,6 +979,7 @@ describe('one piece: move, attack and play a card in ANY order', () => {
     const me = s.players[0];
     expect(me.energy).toBe(2);
     me.hand.push({ uid: 600, id: 'heal' });
+    pawn.hp = 2; // Heal needs a damaged target
     applyAction(s, { type: 'selectUnit', unit: { kind: 'piece', id: pawn.id } });
     applyAction(s, { type: 'move', pieceId: pawn.id, to: legalMoves(s, pawn)[0] });
     expect(canPlayCard(s, 0, me.hand.find((c) => c.uid === 600)!)).toBe(true);
@@ -988,5 +989,167 @@ describe('one piece: move, attack and play a card in ANY order', () => {
     applyAction(s, { type: 'endTurn' });
     while (s.mustDiscard > 0) applyAction(s, { type: 'discard', cardUid: me.hand[0].uid });
     expect(s.current).toBe(1);
+  });
+});
+
+describe('card audit: every card does what its text says', () => {
+  /** Fresh 2-player state, our `kind` at the centre picked as this turn's unit, enemy king adjacent. */
+  function rig(kind: Piece['kind'], card: keyof typeof CARDS, energy = 7) {
+    const s = setup(2, 21);
+    s.pieces = [];
+    s.flag = { pos: hex(-4, 4), carrier: null };
+    const me = s.players[0];
+    const p = place(s, 0, kind, 0, 0);
+    const foe = place(s, 1, 'king', 1, 0);
+    me.energy = energy;
+    me.hand = [{ uid: 1, id: card }];
+    if (CARDS[card].cls !== 'conjuration') applyAction(s, { type: 'selectUnit', unit: { kind: 'piece', id: p.id } });
+    return { s, me, p, foe };
+  }
+  const play = (s: GameState, target?: Parameters<typeof applyAction>[1] extends infer A ? A extends { type: 'playCard'; target?: infer T } ? T : never : never) =>
+    applyAction(s, { type: 'playCard', cardUid: 1, target });
+  const audited = new Set<string>();
+  const audit = (id: string, fn: () => void) => it(id, () => { audited.add(id); fn(); });
+
+  for (const id of ['summon_pawn', 'summon_knight', 'summon_bishop', 'summon_rook', 'summon_queen', 'summon_king'] as const) {
+    audit(id, () => {
+      const s = setup(2, 21);
+      const me = s.players[0];
+      me.energy = 7;
+      me.hand = [{ uid: 1, id }];
+      const spot = summonHexes(s, 0)[0];
+      play(s, { kind: 'hex', hex: spot });
+      const np = pieceAt(s, spot)!;
+      expect(np.kind).toBe(CARDS[id].summons);
+      expect(np.hp).toBe(PIECES[np.kind].hp);
+      expect(np.movesLeft + np.attacksLeft).toBe(0); // summoning sickness
+      expect(me.energy).toBe(7 - CARDS[id].cost);
+    });
+  }
+  audit('heal', () => {
+    const { s, p } = rig('pawn', 'heal');
+    expect(cardTargets(s, 0, CARDS.heal, p)).toEqual([]); // nothing damaged
+    p.hp = 1;
+    play(s, { kind: 'piece', id: p.id });
+    expect(p.hp).toBeGreaterThan(1);
+    expect(p.hp).toBeLessThanOrEqual(p.maxHp);
+  });
+  audit('sharpen', () => {
+    const { s, p, foe } = rig('knight', 'sharpen');
+    play(s);
+    expect(p.bonusDamage).toBe(2);
+    applyAction(s, { type: 'attack', pieceId: p.id, target: { kind: 'piece', id: foe.id } });
+    expect(foe.hp).toBeLessThanOrEqual(20 - 3);
+    expect(p.bonusDamage).toBe(0); // next attack only
+  });
+  audit('frenzy', () => {
+    const { s, p, foe } = rig('knight', 'frenzy');
+    play(s);
+    expect(p.attacksLeft).toBe(2);
+    expect(p.movesLeft).toBe(1); // no extra move: that is Haste
+    applyAction(s, { type: 'attack', pieceId: p.id, target: { kind: 'piece', id: foe.id } });
+    expect(legalAttacks(s, p).length).toBeGreaterThan(0);
+    applyAction(s, { type: 'attack', pieceId: p.id, target: { kind: 'piece', id: foe.id } });
+    expect(legalAttacks(s, p)).toEqual([]);
+  });
+  audit('haste', () => {
+    const { s, p } = rig('knight', 'haste');
+    play(s);
+    expect(p.movesLeft).toBe(2);
+    expect(p.attacksLeft).toBe(1); // no extra attack: that is Frenzy
+    applyAction(s, { type: 'move', pieceId: p.id, to: legalMoves(s, p)[0] });
+    expect(legalMoves(s, p).length).toBeGreaterThan(0);
+    applyAction(s, { type: 'move', pieceId: p.id, to: legalMoves(s, p)[0] });
+    expect(legalMoves(s, p)).toEqual([]);
+  });
+  audit('cordon', () => {
+    const { s, foe } = rig('knight', 'cordon');
+    applyAction(s, { type: 'playCard', cardUid: 1, arrows: [foe.id, foe.id, foe.id, foe.id] });
+    expect(foe.hp).toBeLessThanOrEqual(20 - 4);
+  });
+  audit('shackles', () => {
+    const { s, p } = rig('knight', 'shackles');
+    play(s);
+    expect(p.shackles).toBe(true);
+  });
+  audit('firebolt', () => {
+    const { s, foe } = rig('bishop', 'firebolt');
+    play(s, { kind: 'piece', id: foe.id });
+    expect(foe.hp).toBeLessThanOrEqual(18);
+    expect(foe.hp).toBeGreaterThanOrEqual(12);
+  });
+  audit('fireball', () => {
+    const { s, p, foe } = rig('bishop', 'fireball');
+    const far = place(s, 1, 'king', 0, 4);
+    play(s, { kind: 'hex', hex: hex(1, 1) });
+    expect(foe.hp).toBeLessThan(20); // 1 away
+    expect(p.hp < PIECES.bishop.hp || !s.pieces.includes(p)).toBe(true); // caster is within 2: hit too
+    expect(far.hp).toBe(20);
+  });
+  audit('armor_rend', () => {
+    const { s, foe } = rig('bishop', 'armor_rend');
+    foe.armor = 'plate';
+    foe.shield = 4;
+    play(s, { kind: 'piece', id: foe.id });
+    expect(foe.armor).toBeNull();
+    expect(foe.shield).toBe(0);
+  });
+  audit('necromancy', () => {
+    const { s, p } = rig('bishop', 'necromancy');
+    s.corpses.push({ id: 5000, owner: 1, kind: 'rook', pos: hex(0, 1), round: 1 });
+    play(s, { kind: 'hex', hex: hex(0, 1) });
+    const r = pieceAt(s, hex(0, 1))!;
+    expect(r.kind).toBe('rook');
+    expect(r.owner).toBe(p.owner);
+  });
+  audit('recall', () => {
+    const { s, me, p } = rig('bishop', 'recall');
+    p.hp = 3;
+    play(s);
+    expect(hexDistance(p.pos, me.base)).toBe(1); // NEXT TO the base
+    expect(p.hp).toBe(5);
+  });
+  audit('shield', () => {
+    const { s, p } = rig('rook', 'shield');
+    play(s, { kind: 'piece', id: p.id });
+    expect(p.shield).toBe(4);
+  });
+  audit('fortify', () => {
+    const { s, me } = rig('rook', 'fortify');
+    me.baseHp = 10;
+    play(s);
+    expect(me.baseHp).toBe(16);
+  });
+  for (const [id, pool, reduce] of [['gambeson', 4, 0], ['breastplate', 0, 4], ['plate', 0, 6]] as const) {
+    audit(id, () => {
+      const { s, p, foe } = rig('rook', id);
+      play(s);
+      expect(p.armor).toBe(id);
+      expect(ARMORS[id].pool ?? 0).toBe(pool);
+      expect(ARMORS[id].reduce ?? 0).toBe(reduce);
+      // a hit from the adjacent enemy is reduced/soaked
+      s.current = 1; s.active = null; s.turnActed = false;
+      const before = p.hp;
+      applyAction(s, { type: 'attack', pieceId: foe.id, target: { kind: 'piece', id: p.id } });
+      const dmgTaken = before - (s.pieces.includes(p) ? p.hp : 0);
+      expect(dmgTaken).toBeLessThanOrEqual(Math.max(0, 20 - Math.max(pool, reduce)));
+    });
+  }
+  audit('rally', () => {
+    const { s, me } = rig('rook', 'rally');
+    play(s);
+    expect(me.hand).toHaveLength(2);
+  });
+  for (const id of ['promote_pawn_knight', 'promote_pawn_bishop', 'promote_pawn_rook', 'promote_bishop_queen', 'promote_knight_king', 'promote_rook_king'] as const) {
+    audit(id, () => {
+      const { s } = rig('queen', id);
+      const t = place(s, 0, CARDS[id].promote!.from, 0, -2);
+      play(s, { kind: 'piece', id: t.id });
+      expect(t.kind).toBe(CARDS[id].promote!.to);
+      expect(t.hp).toBe(PIECES[t.kind].hp);
+    });
+  }
+  it('covers every card in the deck', () => {
+    for (const id of Object.keys(CARDS)) expect(audited.has(id), `${id} audited`).toBe(true);
   });
 });

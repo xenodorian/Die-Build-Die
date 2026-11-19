@@ -57,34 +57,79 @@ async function setup(sc, sick) {
 const snap = () => page.evaluate(() => { const s = window.dbd.ui.state; const p = s.pieces.find((x) => x.id === 9001); return { pos: p?.pos, mv: p?.movesLeft, at: p?.attacksLeft, cards: s.cardsUsed, active: s.active, moves: document.querySelectorAll('.hl-move').length, atks: document.querySelectorAll('.hl-attack').length, playable: !!document.querySelector('[data-card="777001"].playable'), hint: document.querySelector('.selinfo')?.textContent?.replace(/\s+/g, ' ').trim() }; });
 const perms = [['move', 'attack', 'card'], ['move', 'card', 'attack'], ['attack', 'move', 'card'], ['attack', 'card', 'move'], ['card', 'move', 'attack'], ['card', 'attack', 'move']];
 let fails = 0;
-for (const [name, sc] of Object.entries(SC)) {
-  for (const order of perms) {
-    await setup(sc, false);
-    await clickHex(sc.start); // select the piece
-    const log = [];
-    let moved = false;
-    for (const step of order) {
-      const before = await snap();
-      if (step === 'move') {
-        await clickHex(sc.dest);
-        moved = true;
-      } else if (step === 'attack') {
-        // attack whichever enemy is adjacent now
-        await clickHex(moved ? sc.e2 : sc.e1);
-      } else {
-        await clickCard(sc.card);
-        if (sc.cardTarget === 'self') await clickHex(moved ? sc.dest : sc.start);
-        if (sc.cardTarget === 'e1') await clickHex(sc.e1);
+async function runAllOrders(label) {
+  const round = await page.evaluate(() => window.dbd.ui.state.round);
+  console.log(`--- ${label} (round ${round}) ---`);
+  for (const [name, sc] of Object.entries(SC)) {
+    for (const order of perms) {
+      await setup(sc, false);
+      await clickHex(sc.start); // select the piece
+      // Acceptance: right after picking, moves + attack targets + the playable card are all lit at once.
+      const sel = await snap();
+      const allLit = sel.active?.id === 9001 && sel.moves > 0 && sel.atks > 0 && sel.playable;
+      const log = [`lit:${allLit ? 'ok' : 'FAIL'}`];
+      if (!allLit) { fails++; log.push(JSON.stringify(sel)); }
+      let moved = false;
+      for (const step of order) {
+        const before = await snap();
+        if (step === 'move') {
+          await clickHex(sc.dest);
+          moved = true;
+        } else if (step === 'attack') {
+          await clickHex(moved ? sc.e2 : sc.e1); // whichever enemy is adjacent now
+        } else {
+          await clickCard(sc.card);
+          if (sc.cardTarget === 'self') await clickHex(moved ? sc.dest : sc.start);
+          if (sc.cardTarget === 'e1') await clickHex(sc.e1);
+        }
+        const after = await snap();
+        const ok = step === 'move' ? after.mv < before.mv : step === 'attack' ? after.at < before.at : after.cards > before.cards;
+        // remaining options re-highlight: anything not yet used is lit again
+        const relit = (after.mv > 0 ? after.moves > 0 : true) && (after.at > 0 ? after.atks > 0 : true) && (after.cards === 0 ? after.playable : true);
+        log.push(`${step}:${ok && relit ? 'ok' : 'FAIL'}`);
+        if (!ok || !relit) { fails++; log.push(JSON.stringify(after)); }
       }
-      const after = await snap();
-      const ok = step === 'move' ? after.mv < before.mv : step === 'attack' ? after.at < before.at : after.cards > before.cards;
-      log.push(`${step}:${ok ? 'ok' : 'FAIL'}`);
-      if (!ok) { fails++; log.push(JSON.stringify(before)); }
+      const end = await snap();
+      if (end.active?.id !== 9001) fails++;
+      console.log(name.padEnd(15), order.join('→').padEnd(20), log.join(' '), '| still selected:', end.active?.id === 9001);
     }
-    const end = await snap();
-    console.log(name.padEnd(15), order.join('→').padEnd(20), log.join(' '), '| still selected:', end.active?.id === 9001);
   }
+  // Esc while a card is targeting returns to the piece with its moves/attacks lit.
+  await setup(SC.bishop, false);
+  await clickHex(SC.bishop.start);
+  await clickCard('firebolt');
+  const tgt = await page.evaluate(() => document.querySelectorAll('.hl-card').length);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(80);
+  const esc = await snap();
+  const escOk = tgt > 0 && esc.active?.id === 9001 && esc.moves > 0 && esc.atks > 0 && esc.playable;
+  console.log('Esc during Fire Bolt targeting returns to the piece:', escOk ? 'ok' : 'FAIL', JSON.stringify(esc));
+  if (!escOk) fails++;
+  // Frenzy = 2 attacks; Haste = 2 moves.
+  await setup({ ...SC.knight_sharpen, card: 'frenzy' }, false);
+  await clickHex(SC.knight_sharpen.start);
+  await clickCard('frenzy');
+  await clickHex(SC.knight_sharpen.e1);
+  const f1 = await snap();
+  await clickHex(SC.knight_sharpen.e1);
+  const f2 = await snap();
+  const frOk = f1.at === 1 && f1.atks > 0 && f2.at === 0;
+  console.log('Frenzy: attack twice:', frOk ? 'ok' : 'FAIL', JSON.stringify({ afterFirst: f1.at, lit: f1.atks, afterSecond: f2.at }));
+  if (!frOk) fails++;
+  await setup(SC.knight_haste, false);
+  await clickHex(SC.knight_haste.start);
+  await clickCard('haste');
+  await clickHex(SC.knight_haste.dest);
+  const h1 = await snap();
+  const second = await page.evaluate(() => { const c = document.querySelector('.hl-move'); return !!c; });
+  const dot2 = await page.$('.hl-move');
+  if (dot2) { const b = await dot2.boundingBox(); await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2); await page.waitForTimeout(80); await page.waitForFunction(() => !window.dbd.ui.busy); }
+  const h2 = await snap();
+  const haOk = h1.mv === 1 && second && h2.mv === 0;
+  console.log('Haste: move twice:', haOk ? 'ok' : 'FAIL', JSON.stringify({ afterFirst: h1.mv, secondLit: second, afterSecond: h2.mv }));
+  if (!haOk) fails++;
 }
+await runAllOrders('fresh game, round 1');
 // summoned-last-turn: a sick piece can't act this turn, but next turn it can do all three
 await setup(SC.pawn, true);
 await clickHex(SC.pawn.start);
@@ -107,7 +152,7 @@ await page.click('#newgame');
 await page.waitForTimeout(300);
 await page.click('#start');
 await idle();
-const pawn0 = await page.evaluate(() => { const s = window.dbd.ui.state; s.players[0].hand[0] = { uid: 888001, id: 'heal' }; window.dbd.renderGame(); return s.pieces.find((p) => p.owner === 0); });
+const pawn0 = await page.evaluate(() => { const s = window.dbd.ui.state; s.players[0].hand[0] = { uid: 888001, id: 'heal' }; s.pieces.find((p) => p.owner === 0).hp = 2; window.dbd.renderGame(); return s.pieces.find((p) => p.owner === 0); });
 await clickHex(pawn0.pos);
 const dot = await page.evaluate(() => { const c = document.querySelector('.hl-move'); return c && [c.getAttribute('cx'), c.getAttribute('cy')]; });
 const dotEl = await page.$('.hl-move');
@@ -129,6 +174,15 @@ if (disc > 0) { await page.click('.card.to-discard'); }
 await page.waitForFunction(() => window.dbd.ui.state.current !== 0 || window.dbd.ui.state.round > 1, null, { timeout: 30000 });
 console.log('end turn (discard prompt shown:', disc, ') -> turn passed ok');
 await idle();
+// Later round: end turns (discarding if asked) until round 3, then the same checks again.
+while ((await page.evaluate(() => window.dbd.ui.state.round)) < 3) {
+  await page.evaluate(() => { const s = window.dbd.ui.state; s.active = null; s.turnActed = false; window.dbd.renderGame(); });
+  await page.click('#endturn');
+  await page.waitForTimeout(150);
+  while (await page.$('.card.to-discard')) { await (await page.$('.card.to-discard')).click(); await page.waitForTimeout(100); }
+  await idle();
+}
+await runAllOrders('later round');
 if (shot) {
   await setup(SC.bishop, false);
   await clickHex(SC.bishop.start);

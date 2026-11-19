@@ -237,8 +237,11 @@ export function cardTargets(s: GameState, owner: number, def: CardDef, actor?: P
     case 'self':
       if (def.id === 'recall' && summonHexes(s, owner).length === 0) return [];
       return [self];
-    case 'selfOrAdjacentFriend':
-      return [self, ...s.pieces.filter((p) => p.owner === owner && hexDistance(p.pos, actor.pos) === 1).map((p): Target => ({ kind: 'piece', id: p.id }))];
+    case 'selfOrAdjacentFriend': {
+      const all = [actor, ...s.pieces.filter((p) => p.owner === owner && hexDistance(p.pos, actor.pos) === 1)];
+      // Heal only makes sense on a damaged piece.
+      return all.filter((p) => def.id !== 'heal' || p.hp < p.maxHp).map((p): Target => ({ kind: 'piece', id: p.id }));
+    }
     case 'adjacentCorpse':
       return neighbors(actor.pos)
         .filter((h) => s.corpses.some((c) => hexEq(c.pos, h)) && isOpenFor(s, h, owner))
@@ -281,18 +284,31 @@ export function cardBlockReason(s: GameState, owner: number, card: Card): string
   const me = s.players[owner];
   if (def.cls === 'conjuration') {
     if (!canBeUnit(s, { kind: 'base' })) return 'Only your base plays conjurations, and this turn you chose a piece';
-    if (me.energy < def.cost) return `Needs ${def.cost} energy`;
+    if (me.energy < def.cost) return `Needs ${def.cost} energy, you have ${me.energy}`;
     if (!summonHexes(s, owner).length) return 'No empty hex on or next to your base';
     return null;
   }
   const actor = activePiece(s);
-  if (!actor) return `${cardUsersText(def)}. Select a piece first`;
-  if (!canClassBeUsedBy(def.cls, actor.kind)) return `${cardUsersText(def)} — not a ${PIECES[actor.kind].name}`;
+  const energyNote = me.energy < def.cost ? ` (and it needs ${def.cost} energy, you have ${me.energy})` : '';
+  const users = CLASS_USERS[def.cls].map((k) => PIECES[k].name);
+  const usersText = users.length > 1 ? `${users.slice(0, -1).join(', ')} or ${users[users.length - 1]}` : users[0];
+  if (!actor) {
+    const anyUser = s.pieces.some((p) => p.owner === owner && canClassBeUsedBy(def.cls, p.kind));
+    if (!anyUser) return `Only a ${usersText} can play this, and you have none on the board${energyNote}`;
+    return `${cardUsersText(def)}. Select a piece first${energyNote}`;
+  }
+  if (!canClassBeUsedBy(def.cls, actor.kind)) return `Only a ${usersText} can play this, not a ${PIECES[actor.kind].name}${energyNote}`;
   if (s.cardsUsed >= RULES.cardsPerPieceTurn) return `A piece may play ${RULES.cardsPerPieceTurn} card per turn`;
-  if (me.energy < def.cost) return `Needs ${def.cost} energy`;
+  if (me.energy < def.cost) return `Needs ${def.cost} energy, you have ${me.energy}`;
   if (def.id === 'fortify' && me.ruined) return 'Your base is in ruins: a King or Rook must rebuild it';
   if (def.id === 'fortify' && me.baseHp >= RULES.baseHp) return 'Your base is at full HP';
-  if (def.targeting !== 'none' && cardTargets(s, owner, def, actor).length === 0) return 'No valid target';
+  if (def.targeting !== 'none' && cardTargets(s, owner, def, actor).length === 0) {
+    if (def.promote) return `No friendly ${PIECES[def.promote.from].name} within ${def.range} hexes of this ${PIECES[actor.kind].name}`;
+    if (def.targeting === 'adjacentCorpse') return 'No 💀 skull on an empty hex next to this piece';
+    if (def.id === 'heal') return 'Nothing to heal: this piece and its neighbours are at full HP';
+    if (def.targeting === 'arrows' || def.targeting === 'enemyInRange' || def.targeting === 'enemyPieceInRange') return `No enemy within ${def.range} hexes`;
+    return 'No valid target';
+  }
   return null;
 }
 
@@ -864,7 +880,9 @@ function resolveCard(s: GameState, events: GameEvent[], me: Player, def: CardDef
       break;
     case 'recall': {
       const p = piece!;
-      const spot = summonHexes(s, me.index).sort((a, b) => hexDistance(a, me.base) - hexDistance(b, me.base))[0];
+      // Next to the base first; the base hex itself only if every neighbour is taken.
+      const spots = summonHexes(s, me.index);
+      const spot = spots.find((h) => hexDistance(h, me.base) === 1) ?? spots[0];
       if (s.flag.carrier === p.id) {
         s.flag = { pos: p.pos, carrier: null };
         log(s, events, `  🚩 The flag is dropped at (${p.pos.q},${p.pos.r}).`);

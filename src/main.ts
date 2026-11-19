@@ -29,8 +29,30 @@ interface Ui {
   fastDice: boolean;
   /** A card clicked before choosing which of several pieces should play it. */
   cardIntent: number | null;
+  /** Short message shown after a click that couldn't do anything (e.g. why a card can't be played). */
+  notice: string | null;
 }
-const ui: Ui = { state: null, selectedPiece: null, pendingCard: null, arrows: [], busy: false, hideHands: true, revealed: true, fastDice: false, cardIntent: null };
+const ui: Ui = { state: null, selectedPiece: null, pendingCard: null, arrows: [], busy: false, hideHands: true, revealed: true, fastDice: false, cardIntent: null, notice: null };
+let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+/** Flash a message so a click never does 'nothing'. */
+function flash(msg: string) {
+  ui.notice = msg;
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => {
+    ui.notice = null;
+    if (ui.state) renderGame();
+  }, 4500);
+  renderGame();
+}
+
+/**
+ * Playable by the unit you have picked right now. Summon cards belong to the base, so while a
+ * piece is picked they are not "lit" (clicking one still switches to the base before you act).
+ */
+function directlyPlayable(s: GameState, card: Card): boolean {
+  if (CARDS[card.id].cls === 'conjuration' && s.active?.kind === 'piece') return false;
+  return canPlayCard(s, s.current, card);
+}
 
 /**
  * Units that could play `card` if picked now. Before your unit has acted you may still switch,
@@ -44,7 +66,7 @@ function unitsThatCanPlay(s: GameState, card: Card): Unit[] {
   for (const u of candidates) {
     if (!canBeUnit(s, u)) continue;
     s.active = u;
-    if (canPlayCard(s, s.current, card)) out.push(u);
+    if (directlyPlayable(s, card)) out.push(u);
   }
   s.active = saved;
   return out;
@@ -300,7 +322,7 @@ function renderBoard(hl: HL): string {
   // Move highlights
   for (const m of hl.moves) {
     const { x, y } = px(m);
-    overlays += `<circle class="hl-move" cx="${x}" cy="${y}" r="6"/>`;
+    overlays += `<polygon class="hl-move-hex" style="--pc:${me.color}" points="${hexPoints(m, S - 2)}"/><circle class="hl-move" cx="${x}" cy="${y}" r="6"/>`;
   }
   // Pieces
   for (const p of s.pieces) {
@@ -404,7 +426,7 @@ function actionChecklist(p: Piece): string {
   const fits = me.hand.filter((c) => CARDS[c.id].cls !== 'conjuration' && canClassBeUsedBy(CARDS[c.id].cls, p.kind)).length;
   const cardsLeft = RULES.cardsPerPieceTurn - s.cardsUsed;
   return `<ul class="actions">
-    ${p.movesLeft <= 0 ? row('done', 'Moved') : moves ? row('open', `<b>Move</b>: click a white dot${p.movesLeft > 1 ? ` (${p.movesLeft} moves left)` : ''}`) : row('none', 'Move: no free hex to move to')}
+    ${p.movesLeft <= 0 ? row('done', 'Moved') : moves ? row('open', `<b>Move</b>: click a highlighted hex${p.movesLeft > 1 ? ` (${p.movesLeft} moves left)` : ''}`) : row('none', 'Move: no free hex to move to')}
     ${p.attacksLeft <= 0 ? row('done', 'Attacked') : atks ? row('open', `<b>Attack</b>: click a red hex${p.attacksLeft > 1 ? ` (${p.attacksLeft} attacks left)` : ''}`) : row('none', `Attack: no enemy in reach yet (must be adjacent)`)}
     ${cardsLeft <= 0 ? row('done', 'Card played') : playable ? row('open', `<b>Card</b>: ${playable} glowing card${playable > 1 ? 's' : ''} in your hand`) : row('none', fits ? 'Card: not enough energy or no target for your cards' : `Card: none of your cards can be used by a ${PIECES[p.kind].name}`)}
   </ul>
@@ -423,7 +445,7 @@ function unitPanel(): string {
     ? `<button id="usebase" class="btn">🏰 Use my base (conjure pieces)</button>` : '';
   const lock = s.turnActed ? '<span class="locked">🔒 locked in for this turn</span>' : '<span class="muted">You can still switch.</span>';
   if (!s.active) {
-    return `<div class="hint strong"><b>Pick ONE unit for this turn:</b> your base (play conjuration cards) or one piece (move, play 1 card, attack — any order).</div>
+    return `<div class="hint strong"><b>Pick ONE unit for this turn:</b> click one of your pieces to move, attack and play 1 card with it (any order), or use your base to summon pieces.</div>
       <div class="hint">Click a glowing piece, or:</div>${baseBtn}`;
   }
   if (s.active.kind === 'base') {
@@ -462,7 +484,7 @@ function renderSidebar() {
       const n = CARDS[card.id].amount ?? 4;
       info = `<div class="hint strong">🏹 <b>Cordon of Arrows</b>: click enemy pieces in range to assign arrows (<b>${ui.arrows.length}/${n}</b>). The same target can take several.
         <div class="row-btns"><button id="fire" class="btn primary" ${ui.arrows.length === n ? '' : 'disabled'}>Fire!</button> <button id="resetarrows" class="btn ghost">Reset</button> <button id="cancel" class="link">Cancel</button></div></div>`;
-    } else if (card) info = `<div class="hint strong">Playing <b>${CARDS[card.id].name}</b>: click a highlighted target. <button id="cancel" class="link">Cancel</button></div>`;
+    } else if (card) info = `<div class="hint strong">Playing <b>${CARDS[card.id].name}</b>: click a highlighted target, or click one of your pieces to use it instead. <button id="cancel" class="link">Cancel</button></div>`;
   }
   const logLines = s.log.slice(-80).map((l) => `<div class="${l.startsWith('—') ? 'turn' : l.startsWith('  ') ? 'sub' : ''}">${escapeHtml(l)}</div>`).join('');
   return `<aside class="side">
@@ -487,7 +509,7 @@ function renderGame() {
   const hl = highlights();
   const showHand = !me.isBot && ui.revealed;
   const hand = showHand
-    ? me.hand.map((c) => renderCard(c, !ui.busy && canPlayCard(s, s.current, c), c.uid === ui.pendingCard, !ui.busy && s.winner === null, s.mustDiscard > 0)).join('') || '<div class="empty">No cards in hand</div>'
+    ? me.hand.map((c) => renderCard(c, !ui.busy && directlyPlayable(s, c), c.uid === ui.pendingCard, !ui.busy && s.winner === null, s.mustDiscard > 0)).join('') || '<div class="empty">No cards in hand</div>'
     : `<div class="empty">${me.isBot ? `${escapeHtml(me.name)} (bot) is thinking…` : 'Hand hidden'}</div>`;
   const energyPips = Array.from({ length: RULES.energyMax }, (_, i) => `<span class="pip ${i < me.energy ? 'on' : ''}"></span>`).join('');
 
@@ -501,12 +523,14 @@ function renderGame() {
       <div class="spacer"></div>
       <a class="btn ghost" href="${RULES_URL}" target="_blank" rel="noopener">Rules</a>
       <button class="btn ghost" id="newgame">New game</button>
+      ${!me.isBot && s.winner === null && canBeUnit(s, { kind: 'base' }) && s.active?.kind !== 'base' ? `<button class="btn ghost" id="hudbase" title="Use your base this turn (play conjuration cards to summon pieces)">🏰 Base</button>` : ''}
       <button class="btn primary" id="endturn" ${ui.busy || me.isBot || s.winner !== null || s.mustDiscard > 0 ? 'disabled' : ''}>End turn ⏎</button>
     </header>
     <main class="main">
       <div class="board-wrap">${renderBoard(hl)}</div>
       ${renderSidebar()}
     </main>
+    ${ui.notice ? `<div class="toast" role="status">${escapeHtml(ui.notice)}</div>` : ''}
     <footer class="hand ${s.mustDiscard > 0 && showHand ? 'discarding' : ''}">${s.mustDiscard > 0 && showHand ? `<div class="discard-banner">Hand limit ${RULES.handLimit}: click ${s.mustDiscard === 1 ? 'a card' : `${s.mustDiscard} cards`} to discard and finish your turn</div>` : ''}${hand}</footer>
     <div class="dice-overlay" id="dice"></div>
     ${!ui.revealed && s.winner === null ? `<div class="modal"><div class="modal-card" style="--pc:${me.color}">
@@ -556,6 +580,7 @@ function bindGame() {
     renderGame();
   });
   app.querySelector('#rebuild')?.addEventListener('click', () => { const p = activePiece(ui.state!); if (p) void doAction({ type: 'rebuild', pieceId: p.id }); });
+  app.querySelector('#hudbase')?.addEventListener('click', () => void doAction({ type: 'selectUnit', unit: { kind: 'base' } }));
   app.querySelector('#usebase')?.addEventListener('click', () => void doAction({ type: 'selectUnit', unit: { kind: 'base' } }));
   app.querySelector('#resetarrows')?.addEventListener('click', () => {
     ui.arrows = [];
@@ -594,18 +619,22 @@ function onCardClick(uid: number) {
     void doAction({ type: 'discard', cardUid: uid });
     return;
   }
-  if (!canPlayCard(s, s.current, card)) {
+  if (!directlyPlayable(s, card)) {
     // Not playable by the current pick: switch to a unit that can play it (allowed until your unit acts).
     const units = unitsThatCanPlay(s, card);
     if (units.length === 1) {
       void doAction({ type: 'selectUnit', unit: units[0] }).then(() => onCardClick(uid));
     } else if (units.length > 1) {
       ui.cardIntent = ui.cardIntent === uid ? null : uid;
-      renderGame();
+      if (ui.cardIntent !== null) flash(`Click the highlighted piece that should play ${CARDS[card.id].name}.`);
+      else renderGame();
+    } else {
+      flash(`✖ Can't play ${CARDS[card.id].name}: ${cardBlockReason(s, s.current, card)}.`);
     }
     return;
   }
   ui.cardIntent = null;
+  ui.notice = null;
   if (ui.pendingCard === uid) {
     ui.pendingCard = null;
     ui.arrows = [];
@@ -644,7 +673,7 @@ function previewArea(h: Hex) {
 function onHexClick(h: Hex, shift = false) {
   const s = ui.state!;
   if (ui.busy || currentPlayer(s).isBot || s.winner !== null || s.mustDiscard > 0) return;
-  const hl = highlights();
+  let hl = highlights();
   const piece = pieceAt(s, h);
   const base = baseAt(s, h);
   const targetsHere: Target[] = [];
@@ -656,17 +685,20 @@ function onHexClick(h: Hex, shift = false) {
     const card = currentPlayer(s).hand.find((c) => c.uid === ui.pendingCard);
     const def = card ? CARDS[card.id] : undefined;
     const t = targetsHere.find((t) => hl.cardTargets.some((c) => sameTarget(c, t)));
-    if (def?.targeting === 'arrows') {
-      if (t && t.kind === 'piece' && ui.arrows.length < (def.amount ?? 4)) ui.arrows.push(t.id);
+    if (def?.targeting === 'arrows' && t && t.kind === 'piece') {
+      if (ui.arrows.length < (def.amount ?? 4)) ui.arrows.push(t.id);
       renderGame();
       return;
     }
-    if (t) void doAction({ type: 'playCard', cardUid: ui.pendingCard, target: t });
-    else {
-      ui.pendingCard = null;
-      renderGame();
+    if (t) {
+      void doAction({ type: 'playCard', cardUid: ui.pendingCard, target: t });
+      return;
     }
-    return;
+    // Not a target for the card: drop the card and treat this as a normal click
+    // (so clicking your own piece picks it instead of being swallowed).
+    ui.pendingCard = null;
+    ui.arrows = [];
+    hl = highlights();
   }
   if (ui.cardIntent !== null) {
     const card = currentPlayer(s).hand.find((c) => c.uid === ui.cardIntent);
@@ -676,8 +708,7 @@ function onHexClick(h: Hex, shift = false) {
       void doAction({ type: 'selectUnit', unit: { kind: 'piece', id: piece.id } }).then(() => onCardClick(uid));
       return;
     }
-    renderGame();
-    return;
+    // Not one of the pieces that could play it: fall through to a normal click.
   }
   const ap = activePiece(s);
   if (ap) {
@@ -696,13 +727,20 @@ function onHexClick(h: Hex, shift = false) {
       return;
     }
   }
-  // Pick a unit: one of your pieces, or your base hex when nothing of yours stands on it.
+  // Pick a unit. A hex with your piece AND your base always picks the piece (clicking it again
+  // keeps it picked); the base is picked with the 🏰 Base button or by clicking its empty hex.
   if (piece && piece.owner === s.current && canBeUnit(s, { kind: 'piece', id: piece.id }) && !(s.active?.kind === 'piece' && s.active.id === piece.id)) {
     void doAction({ type: 'selectUnit', unit: { kind: 'piece', id: piece.id } });
     return;
   }
   if (!piece && base && base.index === s.current && canBeUnit(s, { kind: 'base' }) && s.active?.kind !== 'base') {
     void doAction({ type: 'selectUnit', unit: { kind: 'base' } });
+    return;
+  }
+  if (piece && piece.owner === s.current && !canBeUnit(s, { kind: 'piece', id: piece.id })) {
+    flash(s.turnActed
+      ? 'One unit per turn: another unit has already acted. End your turn to use this piece next turn.'
+      : 'This piece was summoned this turn; it can act from your next turn.');
     return;
   }
   renderGame();
