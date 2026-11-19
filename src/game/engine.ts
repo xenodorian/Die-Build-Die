@@ -28,7 +28,6 @@ export function newGame(setups: PlayerSetup[], seed = Date.now(), mode: GameMode
     active: null,
     turnActed: false,
     cardsUsed: 0,
-    mustDiscard: 0,
     flag: { pos: { ...RULES.flagStart }, carrier: null },
     corpses: [],
     winner: null,
@@ -109,7 +108,7 @@ export const activePiece = (s: GameState): Piece | undefined =>
 
 /** Can this be (or become) the current player's single unit for this turn? */
 export function canBeUnit(s: GameState, unit: Unit): boolean {
-  if (s.winner !== null || s.mustDiscard > 0) return false;
+  if (s.winner !== null) return false;
   if (s.active && sameUnit(s.active, unit)) return true;
   if (s.turnActed) return false; // locked in
   if (unit.kind === 'base') return currentPlayer(s).alive && !currentPlayer(s).ruined;
@@ -279,7 +278,6 @@ export function cardUsersText(def: CardDef): string {
 /** Why `card` can't be played right now, or null if it can. */
 export function cardBlockReason(s: GameState, owner: number, card: Card): string | null {
   if (s.winner !== null || owner !== s.current) return 'Not your turn';
-  if (s.mustDiscard > 0) return `Discard ${s.mustDiscard} card(s) first`;
   const def = CARDS[card.id];
   const me = s.players[owner];
   if (def.cls === 'conjuration') {
@@ -327,7 +325,6 @@ export function legalActions(s: GameState): Action[] {
   if (s.winner !== null) return [];
   const me = s.current;
   const out: Action[] = [];
-  if (s.mustDiscard > 0) return s.players[me].hand.map((c) => ({ type: 'discard', cardUid: c.uid }));
   for (const card of s.players[me].hand) {
     if (!canPlayCard(s, me, card)) continue;
     const def = CARDS[card.id];
@@ -425,7 +422,6 @@ function startTurn(s: GameState, events: GameEvent[]) {
   s.active = null;
   s.turnActed = false;
   s.cardsUsed = 0;
-  s.mustDiscard = 0;
   drawCards(s, events, me, me.turnsTaken === 1 ? RULES.openingHand : RULES.drawPerTurn);
   me.energy = Math.min(RULES.energyStart + (me.turnsTaken - 1) * RULES.energyPerTurn, RULES.energyMax);
   for (const p of s.pieces) {
@@ -607,7 +603,6 @@ export function applyAction(s: GameState, action: Action): GameEvent[] {
   const events: GameEvent[] = [];
   assert(s.winner === null, 'Game is over');
   const me = currentPlayer(s);
-  assert(s.mustDiscard === 0 || action.type === 'discard', `Discard ${s.mustDiscard} card(s) first`);
 
   switch (action.type) {
     case 'move': {
@@ -673,18 +668,12 @@ export function applyAction(s: GameState, action: Action): GameEvent[] {
       me.hand = me.hand.filter((c) => c !== card);
       me.discard.push(card);
       log(s, events, `${me.name} discards ${CARDS[card.id].name}.`, me.index);
-      if (s.mustDiscard > 0) {
-        s.mustDiscard--;
-        // That was the last card over the limit: the turn the player already ended now passes.
-        if (s.mustDiscard === 0) advanceTurn(s, events);
-      }
       break;
     }
     case 'selectUnit': {
       assert(canBeUnit(s, action.unit), 'You cannot pick that unit now');
       s.active = action.unit;
-      const p = action.unit.kind === 'piece' ? pieceById(s, action.unit.id) : undefined;
-      log(s, events, `${me.name} picks their ${p ? PIECES[p.kind].name : 'base'} for this turn.`, me.index);
+      // Not logged: picking is free to change until the unit acts, so only real actions go in the log.
       break;
     }
     case 'rebuild': {
@@ -705,13 +694,13 @@ export function applyAction(s: GameState, action: Action): GameEvent[] {
       break;
     }
     case 'endTurn': {
-      const over = me.hand.length - RULES.handLimit;
-      if (over > 0) {
-        // Hand limit: discard down to 7 before the turn passes.
-        s.mustDiscard = over;
-        s.active = null;
-        log(s, events, `${me.name} has ${me.hand.length} cards and must discard ${over} to end the turn.`, me.index);
-        break;
+      // Ending the turn ALWAYS works. Over the hand limit, the excess is discarded as part of
+      // ending the turn: the cards named in `discard` first, then the oldest cards in hand.
+      const dropped = endTurnDiscards(s, action.discard);
+      if (dropped.length) {
+        me.hand = me.hand.filter((c) => !dropped.includes(c));
+        me.discard.push(...dropped);
+        log(s, events, `${me.name} is over the ${RULES.handLimit}-card hand limit and discards ${dropped.map((c) => CARDS[c.id].name).join(', ')}.`, me.index);
       }
       log(s, events, `${me.name} ends their turn.`, me.index);
       advanceTurn(s, events);
@@ -722,6 +711,19 @@ export function applyAction(s: GameState, action: Action): GameEvent[] {
   // A player who blew up their own base (e.g. with Fireball) loses the rest of their turn.
   if (s.winner === null && !currentPlayer(s).alive) advanceTurn(s, events);
   return events;
+}
+
+/**
+ * The cards that ending the turn now would discard (hand limit): the `preferred` uids first,
+ * then the oldest cards in hand. Empty when the hand is within the limit.
+ */
+export function endTurnDiscards(s: GameState, preferred: number[] = []): Card[] {
+  const hand = currentPlayer(s).hand;
+  const over = hand.length - RULES.handLimit;
+  if (over <= 0) return [];
+  const picked = preferred.map((uid) => hand.find((c) => c.uid === uid)).filter((c): c is Card => !!c);
+  const rest = hand.filter((c) => !picked.includes(c));
+  return [...picked, ...rest].slice(0, over);
 }
 
 /** Make `unit` this turn's unit (switching is allowed until it does something) and lock it in. */

@@ -6,7 +6,7 @@ A hex-board strategy game that mixes **chess pieces**, **a deck of cards**, and 
 Play solo against 1–5 AI opponents (Easy / Normal / Hard) in **Free for All** or **Dogpile** (every AI hunts you), or add pass-and-play humans. v0.4 adds Shackles (capture prisoners), six promotion cards, skulls and Necromancy, and ruined bases that a King or Rook can rebuild. Movement is hex-native: Rook and Bishop slide up to 4 hexes in any of the 6 directions, the Queen slides any distance (values in `src/game/config.ts`). See [RULES.md](RULES.md).
 
 **▶ Play:** https://xenodorian.github.io/Die-Build-Die/
-**📜 Rules:** [RULES.md](RULES.md)
+**📜 Rules:** [RULES.md](RULES.md) · **🧭 UX audit:** [docs/UX_AUDIT.md](docs/UX_AUDIT.md) · **🃏 Card audit:** [docs/CARD_AUDIT.md](docs/CARD_AUDIT.md)
 
 ## Develop
 
@@ -20,6 +20,9 @@ npx tsx scripts/difficulty.ts ffa3 90        # 3-player FFA, one bot of each dif
 npx tsx scripts/difficulty.ts dogpile 60 3   # 'human' seat (Normal bot) vs 3 AIs: Dogpile vs FFA
 node scripts/ui-smoke.mjs http://localhost:4173/Die-Build-Die/   # real-click UI test: move/attack/card in all 6 orders (needs playwright + Chrome)
 node scripts/ui-smoke-fresh.mjs http://localhost:4173/Die-Build-Die/ [shot.png]   # fresh game: pawn select/move, card-click feedback, Base button, all 6 promotions
+node scripts/ui-overhaul.mjs http://localhost:4173/Die-Build-Die/ [shot-prefix]   # v0.5 UI: End turn over the limit, Actions list, locks, undo, keys, effects, every card via the UI
+node scripts/ui-fullgames.mjs http://localhost:4173/Die-Build-Die/ 3 80          # 3 full games vs Easy AI played with real clicks only
+node scripts/ux-audit.mjs http://localhost:4173/Die-Build-Die/ 8                 # naive-human audit: logs silent blocks vs explained locks
 npm run build      # production build in dist/ (base path /Die-Build-Die/)
 ```
 
@@ -33,7 +36,7 @@ Pushing to `main` deploys to GitHub Pages via `.github/workflows/deploy.yml`.
 | `src/game/hex.ts` | Hex math (axial/cube coordinates, distances, board, corners) |
 | `src/game/engine.ts` | Pure rules engine: setup, legal moves/attacks, cards, combat, turns, win checks |
 | `src/game/bot.ts` | AI: Easy / Normal / Hard, Free for All & Dogpile team play |
-| `src/main.ts`, `src/ui/` | Browser UI: SVG board, card hand, animated dice, log |
+| `src/main.ts`, `src/ui/` | Browser UI: SVG board, status bar, Actions list, card hand, animated dice, effects (`src/ui/fx.ts`), log |
 | `tests/` | Vitest unit tests |
 | `scripts/simulate.ts` | Headless simulation to check games finish |
 | `scripts/difficulty.ts` | Difficulty and Dogpile win-rate simulations |

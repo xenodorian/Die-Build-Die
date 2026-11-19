@@ -62,7 +62,8 @@ export type Action =
   | { type: 'selectUnit'; unit: Unit }
   /** A King or Rook standing on its owner's ruined base rolls 1d8 of rebuilding (uses its attack and move). */
   | { type: 'rebuild'; pieceId: number }
-  | { type: 'endTurn' };
+  /** Always ends the turn. Over the hand limit, the excess is discarded: `discard` uids first, then the oldest cards. */
+  | { type: 'endTurn'; discard?: number[] };
 
 export type GameEvent =
   | { type: 'log'; text: string; player?: number }
@@ -99,8 +100,6 @@ export interface GameState {
   turnActed: boolean;
   /** Ability cards the active piece has played this turn. */
   cardsUsed: number;
-  /** Cards the current player must discard (hand over the limit) before doing anything else. */
-  mustDiscard: number;
   /** The flag lies on `pos` when nobody carries it; otherwise `carrier` is the carrying piece's id. */
   flag: { pos: Hex | null; carrier: number | null };
   /** 💀 Where pieces died (newest last). Purely a marker: pieces move over and onto skulls freely. */

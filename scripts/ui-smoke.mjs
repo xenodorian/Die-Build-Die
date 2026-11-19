@@ -39,7 +39,7 @@ const SC = {
 async function setup(sc, sick) {
   await page.evaluate(({ sc, sick }) => {
     const s = window.dbd.ui.state;
-    s.current = 0; s.active = null; s.turnActed = false; s.cardsUsed = 0; s.mustDiscard = 0; s.winner = null;
+    s.current = 0; s.active = null; s.turnActed = false; s.cardsUsed = 0; s.winner = null;
     s.flag = { pos: { q: -4, r: 4 }, carrier: null };
     s.corpses = [];
     const mk = (id, owner, kind, pos, hp) => ({ id, owner, kind, pos, hp, maxHp: hp + 0, movesLeft: sick && owner === 0 ? 0 : 1, attacksLeft: sick && owner === 0 ? 0 : 1, shield: 0, bonusDamage: 0, armor: null });
@@ -166,20 +166,16 @@ await clickHex(newPos);
 const t1 = await page.evaluate(() => ({ energy: window.dbd.ui.state.players[0].energy, cards: window.dbd.ui.state.cardsUsed, moved: window.dbd.ui.state.pieces.find((p) => p.owner === 0).movesLeft === 0, checklist: document.querySelector('.actions')?.textContent?.replace(/\s+/g, ' ').trim() }));
 console.log('turn 1 pawn move then Heal:', JSON.stringify(t1), t1.cards === 1 && t1.moved && t1.energy === 1 ? 'ok' : 'FAIL');
 if (!(t1.cards === 1 && t1.moved)) fails++;
-// End turn with 8 cards in hand → discard prompt, then the AI plays
+// End turn ALWAYS passes the turn (over the hand limit the excess is discarded and logged)
 await page.click('#endturn');
-await page.waitForTimeout(200);
-const disc = await page.evaluate(() => window.dbd.ui.state.mustDiscard);
-if (disc > 0) { await page.click('.card.to-discard'); }
 await page.waitForFunction(() => window.dbd.ui.state.current !== 0 || window.dbd.ui.state.round > 1, null, { timeout: 30000 });
-console.log('end turn (discard prompt shown:', disc, ') -> turn passed ok');
+console.log('end turn -> turn passed ok');
 await idle();
-// Later round: end turns (discarding if asked) until round 3, then the same checks again.
+// Later round: end turns until round 3, then the same checks again.
 while ((await page.evaluate(() => window.dbd.ui.state.round)) < 3) {
   await page.evaluate(() => { const s = window.dbd.ui.state; s.active = null; s.turnActed = false; window.dbd.renderGame(); });
   await page.click('#endturn');
   await page.waitForTimeout(150);
-  while (await page.$('.card.to-discard')) { await (await page.$('.card.to-discard')).click(); await page.waitForTimeout(100); }
   await idle();
 }
 await runAllOrders('later round');

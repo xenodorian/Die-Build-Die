@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ARMORS, CARDS, PIECES, RULES, SLIDE_RANGE, canClassBeUsedBy } from '../src/game/config';
 import {
-  CENTER, applyAction, canBeUnit, hasBuilder, canPlayCard, cardTargets, legalActions, flagCarrier, flagHex, legalAttacks, legalMoves, newGame, pieceAt, summonHexes,
+  CENTER, applyAction, canBeUnit, endTurnDiscards, hasBuilder, canPlayCard, cardTargets, legalActions, flagCarrier, flagHex, legalAttacks, legalMoves, newGame, pieceAt, summonHexes,
 } from '../src/game/engine';
 import { corners, hex, hexDistance, hexEq } from '../src/game/hex';
 import type { GameState, Piece } from '../src/game/types';
@@ -11,7 +11,6 @@ const setup = (n: number, seed = 42) => newGame(Array.from({ length: n }, () => 
 /** End the turn, discarding first if the hand is over the limit. */
 function pass(s: GameState) {
   applyAction(s, { type: 'endTurn' });
-  while (s.mustDiscard > 0) applyAction(s, { type: 'discard', cardUid: s.players[s.current].hand[0].uid });
 }
 
 function place(s: GameState, owner: number, kind: Piece['kind'], q: number, r: number): Piece {
@@ -62,26 +61,42 @@ describe('drawing', () => {
     expect(s.round).toBe(2);
   });
 
-  it('an 8th card never blocks acting; you discard down to 7 when you end the turn', () => {
+  it('an 8th card never blocks anything: End turn always ends the turn and discards the excess', () => {
     const s = setup(2);
     expect(RULES.handLimit).toBe(7);
     applyAction(s, { type: 'endTurn' });
     applyAction(s, { type: 'endTurn' });
     expect(s.players[0].hand).toHaveLength(8);
-    expect(s.mustDiscard).toBe(0);
     // you can still pick and use a unit
     const pawn = s.pieces.find((p) => p.owner === 0)!;
     applyAction(s, { type: 'selectUnit', unit: { kind: 'piece', id: pawn.id } });
     applyAction(s, { type: 'move', pieceId: pawn.id, to: legalMoves(s, pawn)[0] });
-    // ending the turn asks for the discard first
+    const oldest = s.players[0].hand[0];
+    expect(endTurnDiscards(s).map((c) => c.uid)).toEqual([oldest.uid]);
     applyAction(s, { type: 'endTurn' });
-    expect(s.current).toBe(0);
-    expect(s.mustDiscard).toBe(1);
-    expect(legalActions(s).every((a) => a.type === 'discard')).toBe(true);
-    applyAction(s, { type: 'discard', cardUid: s.players[0].hand[0].uid });
+    expect(s.current).toBe(1); // the turn passed straight away
     expect(s.players[0].hand).toHaveLength(7);
-    expect(s.mustDiscard).toBe(0);
-    expect(s.current).toBe(1); // the turn passed
+    expect(s.players[0].discard).toContainEqual(oldest); // the oldest card went
+    expect(s.log.some((l) => /hand limit and discards/.test(l))).toBe(true);
+  });
+
+  it('End turn can name which cards to discard over the limit', () => {
+    const s = setup(2);
+    applyAction(s, { type: 'endTurn' });
+    applyAction(s, { type: 'endTurn' });
+    const keepOldest = s.players[0].hand[0];
+    const drop = s.players[0].hand[5];
+    applyAction(s, { type: 'endTurn', discard: [drop.uid] });
+    expect(s.current).toBe(1);
+    expect(s.players[0].hand).toContainEqual(keepOldest);
+    expect(s.players[0].hand).not.toContainEqual(drop);
+  });
+
+  it('a hand within the limit discards nothing at end of turn', () => {
+    const s = setup(2);
+    expect(endTurnDiscards(s)).toEqual([]);
+    applyAction(s, { type: 'endTurn' });
+    expect(s.players[0].hand).toHaveLength(7);
   });
 });
 
@@ -1018,9 +1033,8 @@ describe('one piece: move, attack and play a card in ANY order', () => {
     expect(canPlayCard(s, 0, me.hand.find((c) => c.uid === 600)!)).toBe(true);
     applyAction(s, { type: 'playCard', cardUid: 600, target: { kind: 'piece', id: pawn.id } });
     expect(me.energy).toBe(1);
-    // with 8 cards the end of turn asks for one discard, then passes
+    // End turn always passes the turn
     applyAction(s, { type: 'endTurn' });
-    while (s.mustDiscard > 0) applyAction(s, { type: 'discard', cardUid: me.hand[0].uid });
     expect(s.current).toBe(1);
   });
 });

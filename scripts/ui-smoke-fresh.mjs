@@ -98,7 +98,7 @@ const promos = [['promote_pawn_knight', 'pawn', 'knight'], ['promote_pawn_bishop
 for (const [id, from, to] of promos) {
   await page.evaluate(({ id, from }) => {
     const s = window.dbd.ui.state;
-    s.current = 0; s.active = null; s.turnActed = false; s.cardsUsed = 0; s.mustDiscard = 0;
+    s.current = 0; s.active = null; s.turnActed = false; s.cardsUsed = 0;
     s.flag = { pos: { q: -4, r: 4 }, carrier: null };
     const HP = { pawn: 4, knight: 6, bishop: 8, rook: 10 };
     s.pieces = s.pieces.filter((p) => p.owner !== 0);
@@ -121,7 +121,6 @@ for (const [id, from, to] of promos) {
 await freshGame();
 for (let r = 0; r < 2; r++) {
   await page.click('#endturn'); await page.waitForTimeout(150);
-  while (await page.$('.card.to-discard')) { await (await page.$('.card.to-discard')).click(); await page.waitForTimeout(100); }
   await idle();
 }
 pawn = await myPawn();

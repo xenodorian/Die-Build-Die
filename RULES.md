@@ -1,4 +1,4 @@
-# Die Build Die — Rules (v0.4 prototype)
+# Die Build Die — Rules (v0.5 prototype)
 
 Chess pieces, a deck of cards and a fistful of dice on a hexagonal board.
 Every number below lives in [`src/game/config.ts`](src/game/config.ts) — change it there and the game, bots and tests follow.
@@ -27,8 +27,8 @@ Every number below lives in [`src/game/config.ts`](src/game/config.ts) — chang
 
 ## Your turn
 1. **Draw.** On your **first turn you draw 7 cards**; every later turn you **draw 1**.
-   - **Hand limit 7.** 🟡 The limit is checked **when you end your turn**: if you hold more than 7, choose which cards to discard and then the turn passes. A big hand never stops you from acting, and playing a card first may mean you don't have to discard.
-   - 🟡 You may also discard any card at any time on your turn (the ✕ on a card).
+   - **Hand limit 7.** 🟡 The limit is checked **when you end your turn**, and **End turn always ends the turn**: if you hold more than 7, your **oldest** extra cards are discarded automatically and listed in the log. A big hand never stops you from acting, and playing a card first may mean nothing is discarded.
+   - 🟡 You may discard any card yourself at any time on your turn (the ✕ on a card), e.g. to keep an old card and drop a newer one. The cards End turn would discard are marked *"discarded at end of turn"* in your hand.
    - 🟡 When your deck is empty, your discard pile is shuffled into a new deck.
 2. **Energy.** You get **2 energy on your first turn, +1 each turn, up to 7**. Unspent energy is lost. Card costs run 1–7; **Fireball is the only 7**.
 3. **Pick ONE unit** for the whole turn — your **base** or **one piece**:
@@ -36,8 +36,21 @@ Every number below lives in [`src/game/config.ts`](src/game/config.ts) — chang
    - **Piece:** it may **move once, play one card, and attack once, in any order** (e.g. attack, then move away).
    - Your other units do nothing this turn.
    - 🟡 You can switch your pick freely until the unit **does something**; then it is locked in.
-   - 🟡 **On screen:** click a piece and its move hexes, attack targets and playable cards all light up at once; do them in any order. Clicking a card starts targeting; Esc or clicking elsewhere cancels and returns to the piece. Use the **🏰 Base** button (or click your empty base) to summon. Clicking a card you can't play shows the reason (wrong piece, not enough energy, no target).
-4. **End turn.**
+   - 🟡 **On screen:** see [Playing on screen](#playing-on-screen).
+4. **End turn.** Always available; it never asks you for anything first.
+
+## Playing on screen
+- **Status bar** (above the board): one sentence that always says what you can do right now, and why other things are locked (e.g. *"This turn you're using your ♝ Bishop. Other pieces and your base are 🔒 locked until next turn."*).
+- **Actions list** (left): every valid action right now for your unit: Move (*n hexes lit*), Attack (*n targets*), each playable card with its cost, switching units (before you act), Undo, End turn. Click an item to do it; **hover it to see it on the board**. Cards you can't play are listed under *Not playable right now* with the reason.
+- **Picking a unit:** units you can pick glow. Clicking one selects it and lights its move hexes (outlined), attack targets (red) and playable cards (bright) all at once. Until its **first action** you can switch freely (click another piece, your base, or press **B**); after that the other units are drawn dimmed with 🔒 (💤 for pieces summoned this turn), and clicking one explains why.
+- **Pips:** each of your pieces shows two small dots above it: white = move left, red = attack left (hollow = used).
+- **Cards:** dimmed cards say on the card why they can't be played (*"Base only: this turn you're using your Pawn"*, *"Needs 3⚡, you have 2"*, *"Only a Queen or King can play this"*). A card marked *↪ switch & play* switches to the unit that can play it (only before you act).
+- **Targeting is never a trap:** clicking a card lights its targets; click a target to play it. **Esc**, **right-click** or clicking anywhere else cancels; clicking one of your pieces selects it.
+- **Hover** any piece for HP, die, armor and actions left; hover an enemy in reach to see the **attack preview** (damage range after shield/armor and kill chance).
+- **Undo** (**U**): a plain move (no dice, no capture, nothing revealed) can be undone, which also un-commits your unit if it was the first action.
+- **Keys:** **E**/Enter end turn · **1–9** play card 1–9 · **B** base · **U** undo move · **Esc**/right-click cancel · **?** help.
+- **Effects:** pieces slide when they move; damage and heals float up from the board; card plays, flag pickups/drops and turn changes show short banners; summons scale in, deaths fade into a 💀. The ✨ button switches to **reduced motion** (also follows your system setting).
+- A short **"How a turn works"** card appears on your first turn (reopen it with **?**).
 
 ## Pieces
 Damage is rolled on the piece's die. Attacks always hit and reach **adjacent** hexes (range 1).

@@ -6,14 +6,18 @@ import type { Action, GameState, Piece, Unit } from './types';
 
 /**
  * Greedy capture-the-flag bot for the one-unit-per-turn rules.
- *  1. If it must discard, it drops the card it can least use.
+ *  1. When it ends its turn over the hand limit, it names the cards it can least use as the discards.
  *  2. It picks its unit (base or one piece) by playing out each option on a copy of the game
  *     (with re-seeded dice, so it can't peek at real rolls) and scoring the result.
  *  3. With the unit chosen it repeatedly takes the single action that most improves the score.
  * It is a sparring partner / rules sanity check, not a strong player.
  */
 export function chooseBotAction(s: GameState): Action {
-  if (s.mustDiscard > 0) return bestDiscard(s);
+  const a = chooseRaw(s);
+  return a.type === 'endTurn' ? botEndTurn(s) : a;
+}
+
+function chooseRaw(s: GameState): Action {
   if (!s.active && !s.turnActed) {
     const unit = chooseUnit(s);
     return unit ? { type: 'selectUnit', unit } : { type: 'endTurn' };
@@ -245,7 +249,6 @@ function unitActions(s: GameState): Action[] {
  * out to the end of this unit's turn (twice, with different dice) and keep the best plan.
  */
 function hardStep(s: GameState, me: number, salt: number): Action {
-  if (s.mustDiscard > 0) return bestDiscard(s);
   const scored: { a: Action; v: number }[] = [];
   let i = 0;
   for (const a of unitActions(s)) {
@@ -290,7 +293,6 @@ function hardStep(s: GameState, me: number, salt: number): Action {
 
 /** Take the action that most improves the evaluation, or end the turn. */
 function greedyStep(s: GameState, me: number, salt: number): Action {
-  if (s.mustDiscard > 0) return bestDiscard(s);
   const base = evaluate(s, me);
   let best: Action = { type: 'endTurn' };
   let bestV = base + 0.5;
@@ -357,6 +359,21 @@ function chooseUnit(s: GameState): Unit | null {
   return best;
 }
 
+/** End the turn, naming the cards it can least use as the hand-limit discards. */
+export function botEndTurn(s: GameState): Action {
+  const over = s.players[s.current].hand.length - RULES.handLimit;
+  if (over <= 0) return { type: 'endTurn' };
+  const c = structuredClone(s.players[s.current].hand);
+  const out: number[] = [];
+  const tmp = { ...s, players: s.players.map((p, i) => (i === s.current ? { ...p, hand: c } : p)) } as GameState;
+  for (let i = 0; i < over; i++) {
+    const a = bestDiscard(tmp) as { cardUid: number };
+    out.push(a.cardUid);
+    tmp.players[s.current].hand = tmp.players[s.current].hand.filter((x) => x.uid !== a.cardUid);
+  }
+  return { type: 'endTurn', discard: out };
+}
+
 /** Discard the card this player can least use. */
 export function bestDiscard(s: GameState): Action {
   const me = s.players[s.current];
@@ -375,9 +392,6 @@ export function bestDiscard(s: GameState): Action {
 export function runBotTurn(s: GameState, apply: (a: Action) => void, maxActions = 60): void {
   const who = s.current;
   for (let i = 0; i < maxActions && s.winner === null && s.current === who; i++) apply(chooseBotAction(s));
-  if (s.winner === null && s.current === who) {
-    if (s.mustDiscard === 0) apply({ type: 'endTurn' });
-    while (s.winner === null && s.current === who && s.mustDiscard > 0) apply(bestDiscard(s));
-  }
+  if (s.winner === null && s.current === who) apply(botEndTurn(s));
 }
 

@@ -18,18 +18,16 @@ const rngBox = { rngState: 12345 };
 function randomTurn(state: GameState) {
   const who = state.current;
   for (let i = 0; i < 500 && state.winner === null && state.current === who; i++) {
-    if (!state.active && !state.turnActed && state.mustDiscard === 0) {
+    if (!state.active && !state.turnActed) {
       const units = selectableUnits(state);
       applyAction(state, { type: 'selectUnit', unit: units[Math.floor(nextRandom(rngBox) * units.length)] });
       continue;
     }
     const acts = legalActions(state).filter((a) => a.type !== 'endTurn');
-    if (state.mustDiscard > 0) { applyAction(state, acts[0]); continue; }
     if (!acts.length || nextRandom(rngBox) < 0.25) applyAction(state, { type: 'endTurn' });
     else applyAction(state, acts[Math.floor(nextRandom(rngBox) * acts.length)]);
   }
-  if (state.winner === null && state.current === who && state.mustDiscard === 0) applyAction(state, { type: 'endTurn' });
-  while (state.winner === null && state.current === who && state.mustDiscard > 0) applyAction(state, { type: 'discard', cardUid: state.players[who].hand[0].uid });
+  if (state.winner === null && state.current === who) applyAction(state, { type: 'endTurn' });
 }
 
 const games = Number(args[0] ?? 200);
