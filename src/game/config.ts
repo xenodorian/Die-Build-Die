@@ -12,13 +12,18 @@ export type PieceKind = 'pawn' | 'knight' | 'bishop' | 'rook' | 'queen' | 'king'
 
 /** How a piece moves. Ranges are counted in steps along that line. */
 export interface MoveRule {
-  /** Steps along the 6 edge directions (rook lines). Sliding is blocked by any piece/base. */
+  /** Steps along the 6 edge directions (straight lines). Sliding is blocked by any piece/base. `Infinity` = to the board edge. */
   straight: number;
   /** Steps along the 6 hex diagonals (bishop lines). Blocked like straight moves. */
   diagonal: number;
   /** Can make a Glinski knight jump (12 hexes at distance 3, ignores blockers). */
   knightJump: boolean;
 }
+
+/** Rook and Bishop slide up to this many hexes in any of the 6 directions (v0.4 fix6: hexes have no clean rook/bishop split). */
+export const SLIDE_RANGE = 4;
+/** The Queen slides any distance in any of the 6 directions, until blocked or the board edge. */
+export const QUEEN_SLIDE_RANGE = Infinity;
 
 export interface PieceStats {
   kind: PieceKind;
@@ -34,9 +39,9 @@ export interface PieceStats {
 export const PIECES: Record<PieceKind, PieceStats> = {
   pawn:   { kind: 'pawn',   name: 'Pawn',   glyph: '♟', hp: 4,  die: 4,  range: 1, move: { straight: 1, diagonal: 0, knightJump: false } },
   knight: { kind: 'knight', name: 'Knight', glyph: '♞', hp: 6,  die: 6,  range: 1, move: { straight: 0, diagonal: 0, knightJump: true } },
-  bishop: { kind: 'bishop', name: 'Bishop', glyph: '♝', hp: 8,  die: 8,  range: 1, move: { straight: 0, diagonal: 2, knightJump: false } },
-  rook:   { kind: 'rook',   name: 'Rook',   glyph: '♜', hp: 10, die: 10, range: 1, move: { straight: 3, diagonal: 0, knightJump: false } },
-  queen:  { kind: 'queen',  name: 'Queen',  glyph: '♛', hp: 12, die: 12, range: 1, move: { straight: 3, diagonal: 2, knightJump: false } },
+  bishop: { kind: 'bishop', name: 'Bishop', glyph: '♝', hp: 8,  die: 8,  range: 1, move: { straight: SLIDE_RANGE, diagonal: 0, knightJump: false } },
+  rook:   { kind: 'rook',   name: 'Rook',   glyph: '♜', hp: 10, die: 10, range: 1, move: { straight: SLIDE_RANGE, diagonal: 0, knightJump: false } },
+  queen:  { kind: 'queen',  name: 'Queen',  glyph: '♛', hp: 12, die: 12, range: 1, move: { straight: QUEEN_SLIDE_RANGE, diagonal: 0, knightJump: false } },
   king:   { kind: 'king',   name: 'King',   glyph: '♚', hp: 20, die: 20, range: 1, move: { straight: 1, diagonal: 1, knightJump: false } },
 };
 
@@ -120,9 +125,9 @@ export const CARDS: Record<CardId, CardDef> = {
   // ---- Conjuration cards (played by your base) ----
   summon_pawn:   { id: 'summon_pawn',   name: 'Summon Pawn',   cls: 'conjuration', category: 'conjuration', cost: 1, targeting: 'summonHex', summons: 'pawn',   copies: 5, text: 'Summon a Pawn. 4 HP, d4. Moves 1 hex.' },
   summon_knight: { id: 'summon_knight', name: 'Summon Knight', cls: 'conjuration', category: 'conjuration', cost: 2, targeting: 'summonHex', summons: 'knight', copies: 4, text: 'Summon a Knight. 6 HP, d6. Jumps 3 hexes off-line (over anything).' },
-  summon_bishop: { id: 'summon_bishop', name: 'Summon Bishop', cls: 'conjuration', category: 'conjuration', cost: 3, targeting: 'summonHex', summons: 'bishop', copies: 3, text: 'Summon a Bishop. 8 HP, d8. Slides up to 2 diagonal steps.' },
-  summon_rook:   { id: 'summon_rook',   name: 'Summon Rook',   cls: 'conjuration', category: 'conjuration', cost: 4, targeting: 'summonHex', summons: 'rook',   copies: 3, text: 'Summon a Rook. 10 HP, d10. Slides up to 3 hexes in a line.' },
-  summon_queen:  { id: 'summon_queen',  name: 'Summon Queen',  cls: 'conjuration', category: 'conjuration', cost: 5, targeting: 'summonHex', summons: 'queen',  copies: 2, text: 'Summon a Queen. 12 HP, d12. Rook or Bishop moves.' },
+  summon_bishop: { id: 'summon_bishop', name: 'Summon Bishop', cls: 'conjuration', category: 'conjuration', cost: 3, targeting: 'summonHex', summons: 'bishop', copies: 3, text: 'Summon a Bishop. 8 HP, d8. Slides up to 4 hexes in any direction.' },
+  summon_rook:   { id: 'summon_rook',   name: 'Summon Rook',   cls: 'conjuration', category: 'conjuration', cost: 4, targeting: 'summonHex', summons: 'rook',   copies: 3, text: 'Summon a Rook. 10 HP, d10. Slides up to 4 hexes in any direction.' },
+  summon_queen:  { id: 'summon_queen',  name: 'Summon Queen',  cls: 'conjuration', category: 'conjuration', cost: 5, targeting: 'summonHex', summons: 'queen',  copies: 2, text: 'Summon a Queen. 12 HP, d12. Slides any distance in any direction.' },
   summon_king:   { id: 'summon_king',   name: 'Summon King',   cls: 'conjuration', category: 'conjuration', cost: 6, targeting: 'summonHex', summons: 'king',   copies: 1, text: 'Summon a King. 20 HP, d20. Moves 1 step, straight or diagonal.' },
 
   // ---- Pawn card (any piece) ----

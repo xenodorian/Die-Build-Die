@@ -34,7 +34,7 @@ const SC = {
   pawn: { kind: 'pawn', start: { q: 0, r: 0 }, dest: { q: -1, r: 0 }, e1: { q: 1, r: 0 }, e2: { q: -2, r: 0 }, card: 'heal', cardTarget: 'self' },
   knight_sharpen: { kind: 'knight', start: { q: 0, r: 0 }, dest: { q: 1, r: 2 }, e1: { q: -1, r: 0 }, e2: { q: 1, r: 3 }, card: 'sharpen' },
   knight_haste: { kind: 'knight', start: { q: 0, r: 0 }, dest: { q: 1, r: 2 }, e1: { q: -1, r: 0 }, e2: { q: 1, r: 3 }, card: 'haste' },
-  bishop: { kind: 'bishop', start: { q: 0, r: 0 }, dest: { q: 1, r: 1 }, e1: { q: -1, r: 0 }, e2: { q: 2, r: 1 }, card: 'firebolt', cardTarget: 'e1' },
+  bishop: { kind: 'bishop', start: { q: 0, r: 0 }, dest: { q: 0, r: 2 }, e1: { q: -1, r: 0 }, e2: { q: 1, r: 2 }, card: 'firebolt', cardTarget: 'e1' },
 };
 async function setup(sc, sick) {
   await page.evaluate(({ sc, sick }) => {

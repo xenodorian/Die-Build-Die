@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ARMORS, CARDS, PIECES, RULES, canClassBeUsedBy } from '../src/game/config';
+import { ARMORS, CARDS, PIECES, RULES, SLIDE_RANGE, canClassBeUsedBy } from '../src/game/config';
 import {
   CENTER, applyAction, canBeUnit, hasBuilder, canPlayCard, cardTargets, legalActions, flagCarrier, flagHex, legalAttacks, legalMoves, newGame, pieceAt, summonHexes,
 } from '../src/game/engine';
@@ -101,13 +101,46 @@ describe('movement', () => {
     expect(legalMoves(s, pawn)).toHaveLength(3);
   });
 
-  it('rook slides up to 3 and is blocked by pieces', () => {
+  for (const kind of ['rook', 'bishop'] as const) {
+    it(`${kind} slides up to ${SLIDE_RANGE} hexes in any of the 6 directions and is blocked by pieces`, () => {
+      const s = setup(2);
+      s.pieces = [];
+      const r = place(s, 0, kind, 0, 0);
+      expect(SLIDE_RANGE).toBe(4);
+      expect(legalMoves(s, r)).toHaveLength(6 * 4);
+      expect(legalMoves(s, r).every((h) => hexDistance(h, r.pos) <= 4)).toBe(true);
+      expect(legalMoves(s, r).some((h) => hexEq(h, hex(1, 1)))).toBe(false); // no diagonal steps
+      place(s, 1, 'pawn', 2, 0);
+      expect(legalMoves(s, r)).toHaveLength(6 * 4 - 3); // (1,0) still OK, (2,0)..(4,0) blocked
+    });
+  }
+
+  it('queen slides any distance in any of the 6 directions, to the board edge or a blocker', () => {
     const s = setup(2);
     s.pieces = [];
-    const r = place(s, 0, 'rook', 0, 0);
-    expect(legalMoves(s, r)).toHaveLength(18);
-    place(s, 1, 'pawn', 2, 0);
-    expect(legalMoves(s, r)).toHaveLength(16); // (1,0) still OK, (2,0) and (3,0) blocked
+    for (const pl of s.players) pl.base = hex(-99, 0); // bases off the lines for a clean count
+    const q = place(s, 0, 'queen', 0, 0);
+    expect(legalMoves(s, q)).toHaveLength(6 * RULES.boardRadius); // centre to every edge
+    place(s, 1, 'pawn', 3, 0);
+    expect(legalMoves(s, q)).toHaveLength(6 * RULES.boardRadius - 3); // (3,0)..(5,0) blocked
+    s.pieces = [];
+    const q2 = place(s, 0, 'queen', -RULES.boardRadius, 0);
+    expect(legalMoves(s, q2).some((h) => hexDistance(h, q2.pos) === RULES.boardRadius * 2)).toBe(true); // edge to edge
+  });
+
+  it('sliding over the flag does not pick it up; landing on it does', () => {
+    const s = setup(2, 3);
+    s.pieces = [];
+    s.flag = { pos: hex(0, 2), carrier: null };
+    const q = place(s, 0, 'queen', 0, 0);
+    s.current = 0;
+    applyAction(s, { type: 'move', pieceId: q.id, to: hex(0, 4) });
+    expect(s.flag.carrier).toBeNull();
+    expect(s.flag.pos).toEqual(hex(0, 2));
+    const r = place(s, 1, 'rook', 0, -1);
+    s.current = 1; s.active = null; s.turnActed = false;
+    applyAction(s, { type: 'move', pieceId: r.id, to: hex(0, 2) }); // blocked? queen at (0,4) is beyond
+    expect(s.flag.carrier).toBe(r.id);
   });
 
   it('knight jumps over blockers', () => {
@@ -933,7 +966,7 @@ describe('one piece: move, attack and play a card in ANY order', () => {
     { kind: 'pawn' as const, dest: hex(-1, 0), e1: hex(1, 0), e2: hex(-2, 0), card: 'heal' as const, target: 'self' },
     { kind: 'knight' as const, dest: hex(1, 2), e1: hex(-1, 0), e2: hex(1, 3), card: 'sharpen' as const, target: 'none' },
     { kind: 'knight' as const, dest: hex(1, 2), e1: hex(-1, 0), e2: hex(1, 3), card: 'haste' as const, target: 'none' },
-    { kind: 'bishop' as const, dest: hex(1, 1), e1: hex(-1, 0), e2: hex(2, 1), card: 'firebolt' as const, target: 'e1' },
+    { kind: 'bishop' as const, dest: hex(0, 2), e1: hex(-1, 0), e2: hex(1, 2), card: 'firebolt' as const, target: 'e1' },
   ];
   for (const sc of scenarios) {
     it.each(orders.map((o) => [o.join(' → '), o] as const))(`${sc.kind} + ${sc.card}: %s`, (_name, order) => {

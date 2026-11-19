@@ -149,7 +149,7 @@ export function reachableHexes(s: GameState, piece: Piece): Hex[] {
   };
   const slide = (dirs: Hex[], max: number) => {
     for (const d of dirs) {
-      for (let k = 1; k <= max; k++) {
+      for (let k = 1; k <= Math.min(max, RULES.boardRadius * 2); k++) {
         const h = hexAdd(piece.pos, hexScale(d, k));
         if (!isOpenFor(s, h, piece.owner)) {
           if (canCapture(s, piece, h)) add(h);

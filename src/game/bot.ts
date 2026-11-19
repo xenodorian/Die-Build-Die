@@ -33,8 +33,8 @@ export function turnsTo(kind: PieceKind, from: Hex, to: Hex): number {
     dist = new Map();
     const rule = PIECES[kind].move;
     const steps: Hex[] = [];
-    for (const d of DIRECTIONS) for (let k = 1; k <= rule.straight; k++) steps.push(hex(d.q * k, d.r * k));
-    for (const d of DIAGONALS) for (let k = 1; k <= rule.diagonal; k++) steps.push(hex(d.q * k, d.r * k));
+    for (const d of DIRECTIONS) for (let k = 1; k <= Math.min(rule.straight, RULES.boardRadius * 2); k++) steps.push(hex(d.q * k, d.r * k));
+    for (const d of DIAGONALS) for (let k = 1; k <= Math.min(rule.diagonal, RULES.boardRadius * 2); k++) steps.push(hex(d.q * k, d.r * k));
     if (rule.knightJump) steps.push(...KNIGHT_JUMPS);
     dist.set(`${to.q},${to.r}`, 0);
     let frontier = [to];

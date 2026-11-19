@@ -46,12 +46,13 @@ Damage is rolled on the piece's die. Attacks always hit and reach **adjacent** h
 |---|---|---|---|---|
 | ♟ Pawn | 4 | d4 | 1 hex in any of the 6 directions | 1 |
 | ♞ Knight | 6 | d6 | Jumps to any of the 12 hexes 3 away that aren't in a straight line; jumps over anything | 2 |
-| ♝ Bishop | 8 | d8 | Slides up to 2 diagonal steps | 3 |
-| ♜ Rook | 10 | d10 | Slides up to 3 hexes in a line | 4 |
-| ♛ Queen | 12 | d12 | Rook or Bishop movement | 5 |
+| ♝ Bishop | 8 | d8 | 🟡 Slides **up to 4 hexes in any of the 6 directions** | 3 |
+| ♜ Rook | 10 | d10 | 🟡 Slides **up to 4 hexes in any of the 6 directions** | 4 |
+| ♛ Queen | 12 | d12 | 🟡 Slides **any distance in any of the 6 directions** (to the board edge or the first blocker) | 5 |
 | ♚ King | 20 | d20 | 1 step straight or diagonal | 6 |
 
-- Sliding pieces are blocked by anything in their path. Nobody can stop on an occupied hex or an enemy base.
+- 🟡 Hexes have no clean rook/bishop (orthogonal/diagonal) split, so Rook and Bishop now move alike (up to 4) and the Queen stands out with unlimited range. Values live in `src/game/config.ts` (`SLIDE_RANGE`, `QUEEN_SLIDE_RANGE`).
+- Sliding pieces are blocked by anything in their path. 🟡 A piece only picks up the flag by **landing** on its hex; sliding over it doesn't count. Nobody can stop on an occupied hex or an enemy base.
 - New pieces can't be picked as your unit until your next turn (you used the base this turn anyway).
 - A piece at 0 HP is removed.
 

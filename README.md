@@ -3,7 +3,7 @@
 A hex-board strategy game that mixes **chess pieces**, **a deck of cards**, and **dice**.
 2–6 players start in the corners of a radius-5 hex board (91 hexes) and play capture the flag: grab the flag from the centre hex and carry it home. Each turn you act with ONE unit — your base (conjure chess pieces) or a single piece (move, play one class card, attack) — and roll dice to fight.
 
-Play solo against 1–5 AI opponents (Easy / Normal / Hard) in **Free for All** or **Dogpile** (every AI hunts you), or add pass-and-play humans. v0.4 adds Shackles (capture prisoners), six promotion cards, skulls and Necromancy, and ruined bases that a King or Rook can rebuild. See [RULES.md](RULES.md).
+Play solo against 1–5 AI opponents (Easy / Normal / Hard) in **Free for All** or **Dogpile** (every AI hunts you), or add pass-and-play humans. v0.4 adds Shackles (capture prisoners), six promotion cards, skulls and Necromancy, and ruined bases that a King or Rook can rebuild. Movement is hex-native: Rook and Bishop slide up to 4 hexes in any of the 6 directions, the Queen slides any distance (values in `src/game/config.ts`). See [RULES.md](RULES.md).
 
 **▶ Play:** https://xenodorian.github.io/Die-Build-Die/
 **📜 Rules:** [RULES.md](RULES.md)
