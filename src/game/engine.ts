@@ -110,10 +110,21 @@ export const activePiece = (s: GameState): Piece | undefined =>
 export function canBeUnit(s: GameState, unit: Unit): boolean {
   if (s.winner !== null) return false;
   if (s.active && sameUnit(s.active, unit)) return true;
-  if (s.turnActed) return false; // locked in
-  if (unit.kind === 'base') return currentPlayer(s).alive && !currentPlayer(s).ruined;
+  if (unit.kind === 'base') {
+    // Base can still be used after it has already summoned (to summon more),
+    // or freely before any unit has acted.
+    return currentPlayer(s).alive && !currentPlayer(s).ruined &&
+      (!s.turnActed || s.active?.kind === 'base');
+  }
   const p = pieceById(s, unit.id);
-  return !!p && p.owner === s.current && (p.movesLeft > 0 || p.attacksLeft > 0);
+  if (!p || p.owner !== s.current) return false;
+  // After the base has acted (summoned), any piece that still has a move or attack
+  // left can still be chosen so the summoned piece can act this turn.
+  if (s.turnActed && s.active?.kind === 'base') {
+    return p.movesLeft > 0 || p.attacksLeft > 0;
+  }
+  if (s.turnActed) return false; // locked in to a piece
+  return p.movesLeft > 0 || p.attacksLeft > 0;
 }
 
 /** Units the current player could pick right now. */
@@ -695,7 +706,7 @@ export function applyAction(s: GameState, action: Action): GameEvent[] {
     }
     case 'endTurn': {
       // Ending the turn ALWAYS works. Over the hand limit, the excess is discarded as part of
-      // ending the turn: the cards named in `discard` first, then the oldest cards in hand.
+      // ending the turn: the cards named in `discard` first, then the last (newest) cards in hand.
       const dropped = endTurnDiscards(s, action.discard);
       if (dropped.length) {
         me.hand = me.hand.filter((c) => !dropped.includes(c));
@@ -715,7 +726,7 @@ export function applyAction(s: GameState, action: Action): GameEvent[] {
 
 /**
  * The cards that ending the turn now would discard (hand limit): the `preferred` uids first,
- * then the oldest cards in hand. Empty when the hand is within the limit.
+ * then the last (newest) cards in hand. Empty when the hand is within the limit.
  */
 export function endTurnDiscards(s: GameState, preferred: number[] = []): Card[] {
   const hand = currentPlayer(s).hand;
@@ -723,7 +734,9 @@ export function endTurnDiscards(s: GameState, preferred: number[] = []): Card[] 
   if (over <= 0) return [];
   const picked = preferred.map((uid) => hand.find((c) => c.uid === uid)).filter((c): c is Card => !!c);
   const rest = hand.filter((c) => !picked.includes(c));
-  return [...picked, ...rest].slice(0, over);
+  // Prefer the last cards in the hand (newest) when nothing is explicitly named.
+  const lastFirst = [...rest].reverse();
+  return [...picked, ...lastFirst].slice(0, over);
 }
 
 /** Make `unit` this turn's unit (switching is allowed until it does something) and lock it in. */

@@ -196,8 +196,8 @@ export const RULES = {
   energyPerTurn: 1,
   energyMax: 7,
 
-  /** Freshly summoned pieces cannot be your unit until your next turn. */
-  summoningSickness: true,
+  /** Freshly summoned pieces can move and attack the same turn. */
+  summoningSickness: false,
   /**
    * One unit per turn: you pick your BASE (play any number of conjuration cards you can afford)
    * or ONE piece, which may move, play cards and attack, in any order, up to these limits.

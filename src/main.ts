@@ -494,7 +494,7 @@ function statusLine(): { text: string; detail: string; tone: '' | 'go' | 'warn' 
   if (me.isBot) return { text: `🤖 ${escapeHtml(me.name)} is playing…`, detail: 'Wait for your turn. You can read the log on the right meanwhile.', tone: 'wait' };
   if (!ui.revealed) return { text: `Pass the device to ${escapeHtml(me.name)}.`, detail: '', tone: 'wait' };
   const over = endTurnDiscards(s);
-  const overNote = over.length ? ` Hand ${me.hand.length}/${RULES.handLimit}: End turn will discard ${over.map((c) => `<b>${CARDS[c.id].name}</b>`).join(', ')} (oldest), or ✕ a card yourself.` : '';
+  const overNote = over.length ? ` Hand ${me.hand.length}/${RULES.handLimit}: End turn will discard ${over.map((c) => `<b>${CARDS[c.id].name}</b>`).join(', ')} (last), or ✕ a card yourself.` : '';
   if (ui.pendingCard !== null) {
     const card = me.hand.find((c) => c.uid === ui.pendingCard);
     const def = card ? CARDS[card.id] : undefined;
@@ -510,8 +510,8 @@ function statusLine(): { text: string; detail: string; tone: '' | 'go' | 'warn' 
   }
   if (s.active.kind === 'base') {
     const summons = me.hand.filter((c) => CARDS[c.id].cls === 'conjuration' && canPlayCard(s, s.current, c)).length;
-    if (!s.turnActed) return { text: `🏰 Base selected: play a summon card (${summons} playable).`, detail: `Not committed yet: click a piece to switch. Your first summon locks your pieces until next turn.${overNote}`, tone: 'go' };
-    return { text: summons ? `🏰 This turn you're using your base. Summon more (${me.energy}⚡ left) or End turn.` : '🏰 This turn you\'re using your base, and it has nothing left to summon. Press End turn (E).', detail: `Your pieces are 🔒 locked until next turn (one unit per turn).${overNote}`, tone: summons ? 'go' : 'warn' };
+    if (!s.turnActed) return { text: `🏰 Base selected: play a summon card (${summons} playable).`, detail: `Not committed yet: click a piece to switch. After summoning you can still move and attack with a piece this turn.${overNote}`, tone: 'go' };
+    return { text: summons ? `🏰 This turn you're using your base. Summon more (${me.energy}⚡ left) or select a piece to move/attack.` : '🏰 Summons done. Select a piece to move and attack, or End turn.', detail: `A summoned piece (or any piece with actions left) can still move and attack this turn.${overNote}`, tone: summons ? 'go' : 'warn' };
   }
   const p = activePiece(s);
   if (!p) return { text: 'Your unit fell this turn. Press End turn (E).', detail: overNote, tone: 'warn' };
@@ -618,7 +618,7 @@ function unitPanel(): string {
   if (me.isBot) return '<div class="hint">Bot is playing…</div>';
   if (me.ruined) return `<div class="hint warn">🏚 Your base is in ruins (${me.baseHp}/${RULES.baseHp} rebuilt). Stand a King or Rook on it and press Rebuild (1d8 per turn). Lose every King and Rook and you're out.</div>`;
   if (!s.active) return `<div class="hint">No unit selected. Click a glowing piece or your 🏰 base. Hover any piece for its stats.</div>`;
-  if (s.active.kind === 'base') return `<div class="selinfo" style="--pc:${me.color}"><div class="big">🏰 Base</div><div>❤ ${me.baseHp}/${RULES.baseHp}. Play summon cards to put pieces on or next to it (as many as your energy pays for). New pieces act from your next turn.</div></div>`;
+  if (s.active.kind === 'base') return `<div class="selinfo" style="--pc:${me.color}"><div class="big">🏰 Base</div><div>❤ ${me.baseHp}/${RULES.baseHp}. Play summon cards to put pieces on or next to it (as many as your energy pays for). Summoned pieces can move and attack this turn.</div></div>`;
   const sel = activePiece(s);
   if (!sel) return `<div class="hint">Your unit fell this turn. End your turn.</div>`;
   const st = PIECES[sel.kind];
@@ -674,7 +674,7 @@ const HELP_HTML = `<div class="helpcard" role="note"><div class="hh">How a turn 
     <li><b>A piece</b> can <b>move</b> (outlined hexes), <b>attack</b> (red hexes) and play <b>1 card</b>, in any order. <b>The base</b> plays summon cards.</li>
     <li>You can <b>switch</b> units freely until the first action. Then the others are 🔒 locked until next turn.</li>
     <li>The <b>Actions</b> list on the left always shows what you can do; hover an item to see it on the board.</li>
-    <li><b>End turn</b> (<kbd>E</kbd>) always works. Over 7 cards, the oldest extras are discarded.</li>
+    <li><b>End turn</b> (<kbd>E</kbd>) always works. Over 7 cards, the last extras are discarded.</li>
   </ol>
   <div class="muted small">Keys: <kbd>1</kbd>–<kbd>9</kbd> cards · <kbd>B</kbd> base · <kbd>U</kbd> undo move · <kbd>Esc</kbd>/right-click cancel · <kbd>?</kbd> this help</div>
   <button class="btn primary" id="helpok">Got it</button></div>`;

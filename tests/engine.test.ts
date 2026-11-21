@@ -71,12 +71,12 @@ describe('drawing', () => {
     const pawn = s.pieces.find((p) => p.owner === 0)!;
     applyAction(s, { type: 'selectUnit', unit: { kind: 'piece', id: pawn.id } });
     applyAction(s, { type: 'move', pieceId: pawn.id, to: legalMoves(s, pawn)[0] });
-    const oldest = s.players[0].hand[0];
-    expect(endTurnDiscards(s).map((c) => c.uid)).toEqual([oldest.uid]);
+    const last = s.players[0].hand[s.players[0].hand.length - 1];
+    expect(endTurnDiscards(s).map((c) => c.uid)).toEqual([last.uid]);
     applyAction(s, { type: 'endTurn' });
     expect(s.current).toBe(1); // the turn passed straight away
     expect(s.players[0].hand).toHaveLength(7);
-    expect(s.players[0].discard).toContainEqual(oldest); // the oldest card went
+    expect(s.players[0].discard).toContainEqual(last); // the last card went
     expect(s.log.some((l) => /hand limit and discards/.test(l))).toBe(true);
   });
 
@@ -246,7 +246,7 @@ describe('combat', () => {
 });
 
 describe('cards and winning', () => {
-  it('summoning costs energy and places a sick piece next to base', () => {
+  it('summoning costs energy and places a piece that can act the same turn', () => {
     const s = setup(2);
     const me = s.players[0];
     me.hand = [{ uid: 9999, id: 'summon_knight' }];
@@ -257,7 +257,10 @@ describe('cards and winning', () => {
     expect(me.energy).toBe(0);
     const k = pieceAt(s, spot)!;
     expect(k.kind).toBe('knight');
-    expect(legalMoves(s, k)).toHaveLength(0);
+    // Summoned piece can be selected and has its move/attack available
+    expect(canBeUnit(s, { kind: 'piece', id: k.id })).toBe(true);
+    applyAction(s, { type: 'selectUnit', unit: { kind: 'piece', id: k.id } });
+    expect(legalMoves(s, k).length).toBeGreaterThan(0);
     expect(CARDS.summon_knight.cost).toBe(2);
   });
 
