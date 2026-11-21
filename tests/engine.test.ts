@@ -444,7 +444,8 @@ describe('one unit per turn', () => {
     applyAction(s, { type: 'playCard', cardUid: 2, target: { kind: 'hex', hex: summonHexes(s, 0)[0] } });
     expect(s.pieces.filter((p) => p.owner === 0)).toHaveLength(3);
     const starter = s.pieces.find((p) => p.owner === 0 && p.kind === 'pawn')!;
-    expect(legalMoves(s, starter)).toHaveLength(0); // the base was this turn's unit
+    // After the base summons, a piece that still has actions can still be selected and moved
+    expect(legalMoves(s, starter).length).toBeGreaterThan(0);
   });
 
   it('a piece plays cards of its class, limited only by energy', () => {
