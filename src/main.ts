@@ -762,10 +762,17 @@ function renderDiscardPrompt(): string {
   const selected = new Set(ui.discardPrompt!.selected);
   const cards = me.hand.map((c) => {
     const d = CARDS[c.id];
+    const icon = cardIcon(c);
+    const stats = d.summons ? `<div class="stats"><span>❤ ${PIECES[d.summons].hp}</span><span>🎲 d${PIECES[d.summons].die}</span></div>` : '';
     const on = selected.has(c.uid);
-    return `<button class="card cat-${d.category} cls-${d.cls} ${on ? 'selected' : ''}" data-discard-uid="${c.uid}" title="${escapeHtml(d.name)}">
-      <span class="name">${escapeHtml(d.name)}</span>
+    return `<button class="card cat-${d.category} cls-${d.cls} ${on ? 'selected' : ''}" data-discard-uid="${c.uid}" title="${escapeHtml(d.name + '\n' + d.text)}">
       <span class="cost">${d.cost}</span>
+      <span class="cls">${CLASS_BADGE[d.cls]}</span>
+      <span class="icon">${icon}</span>
+      <span class="name">${escapeHtml(d.name)}</span>
+      ${stats}
+      <span class="text">${escapeHtml(d.text)}</span>
+      <span class="cat">${CATEGORY_LABEL[d.category]}</span>
     </button>`;
   }).join('');
   const ready = selected.size === over;
