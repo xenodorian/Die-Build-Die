@@ -38,6 +38,8 @@ interface Ui {
   helpOpen: boolean;
   /** Skull ids that just appeared (fade in on the next render). */
   freshCorpses: Set<number>;
+  /** Piece ids that were just summoned/raised (scale in on the next render). */
+  freshPieces: Set<number>;
   /** When set, a discard prompt is open: player must select cards to discard before ending turn. */
   discardPrompt: { selected: number[] } | null;
 }
