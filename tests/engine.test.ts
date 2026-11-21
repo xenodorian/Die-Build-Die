@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ARMORS, CARDS, PIECES, RULES, SLIDE_RANGE, canClassBeUsedBy } from '../src/game/config';
 import {
-  CENTER, applyAction, canBeUnit, endTurnDiscards, hasBuilder, canPlayCard, cardTargets, legalActions, flagCarrier, flagHex, legalAttacks, legalMoves, newGame, pieceAt, summonHexes,
+  CENTER, applyAction, canBeUnit, endTurnDiscards, hasBuilder, canPlayCard, cardTargets, legalActions, legalAttacks, legalMoves, newGame, pieceAt, summonHexes,
 } from '../src/game/engine';
 import { corners, hex, hexDistance, hexEq } from '../src/game/hex';
 import type { GameState, Piece } from '../src/game/types';

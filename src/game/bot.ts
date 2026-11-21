@@ -1,5 +1,5 @@
 import { ARMORS, CARDS, PIECES, RULES, canClassBeUsedBy, type PieceKind } from './config';
-import { applyAction, flagCarrier, flagHex, legalActions, reachableHexes, selectableUnits, summonHexes } from './engine';
+import { applyAction, legalActions, reachableHexes, selectableUnits, summonHexes } from './engine';
 import { nextRandom } from './rng';
 import { DIAGONALS, DIRECTIONS, KNIGHT_JUMPS, hex, hexDistance, hexEq, inBoard, type Hex } from './hex';
 import type { Action, GameState, Piece, Unit } from './types';
@@ -79,7 +79,6 @@ export function evaluate(s: GameState, me: number): number {
   const meP = s.players[me];
   if (!meP.alive) return -1e6;
   const enemies = s.players.filter((p) => p.alive && rel(p.index) === 'enemy');
-  const team = (o: number) => o === me || (dogpileAI && rel(o) === 'ally');
   const share = 1 / Math.max(1, enemies.length);
   let v = 0;
 

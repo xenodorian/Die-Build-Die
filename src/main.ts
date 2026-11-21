@@ -2,7 +2,7 @@ import './ui/style.css';
 import { ARMORS, CARDS, PIECES, PLAYER_COLORS, PLAYER_NAMES, RULES, canClassBeUsedBy, type CardCategory } from './game/config';
 import {
   CENTER, activePiece, applyAction, areaVictims, baseAt, canBeUnit, canPlayCard, cardBlockReason, cardTargets, cardUsersText, currentPlayer,
-  endTurnDiscards, flagCarrier, flagHex, garrisonOf, legalAttacks, legalMoves, newGame, pieceAt,
+  endTurnDiscards, garrisonOf, legalAttacks, legalMoves, newGame, pieceAt,
   pieceById, sameTarget,
   canRebuild,
 } from './game/engine';

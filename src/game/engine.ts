@@ -461,7 +461,7 @@ function startTurn(s: GameState, events: GameEvent[]) {
 }
 
 /** Remove a piece from the board. */
-function removePiece(s: GameState, events: GameEvent[], p: Piece) {
+function removePiece(s: GameState, _events: GameEvent[], p: Piece) {
   s.pieces = s.pieces.filter((x) => x !== p);
 }
 
@@ -621,7 +621,6 @@ export function applyAction(s: GameState, action: Action): GameEvent[] {
       p.movesLeft--;
       log(s, events, `${me.name} moves ${PIECES[p.kind].name} to (${action.to.q},${action.to.r}).`, me.index);
       tryPickUp(s, events, p);
-      checkFlagWin(s, events, p);
       break;
     }
     case 'attack': {
@@ -694,7 +693,6 @@ export function applyAction(s: GameState, action: Action): GameEvent[] {
         me.ruined = false;
         log(s, events, `  🏰 ${me.name}'s base is rebuilt (${me.baseHp}/${RULES.baseHp}) and active again!`, me.index);
         events.push({ type: 'baseRebuilt', player: me.index });
-        checkFlagWin(s, events, p);
       } else log(s, events, `  Rebuilding: ${me.baseHp}/${RULES.baseHp}.`, me.index);
       break;
     }
