@@ -200,11 +200,13 @@ export const RULES = {
   summoningSickness: false,
   /**
    * One unit per turn: you pick your BASE (play any number of conjuration cards you can afford)
-   * or ONE piece, which may move, play cards and attack, in any order, up to these limits.
+   * or ONE piece, which may move, play cards and attack, in any order.
+   * Cards are limited only by energy (and card class / targeting rules).
    */
   movesPerTurn: 1,
   attacksPerTurn: 1,
-  cardsPerPieceTurn: 1,
+  /** No hard card-count limit; energy is the only restriction on how many cards you can play. */
+  cardsPerPieceTurn: 99,
 
   /**
    * Garrison: while one of its owner's pieces stands on a base, damage aimed at the base hits

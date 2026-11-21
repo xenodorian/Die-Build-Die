@@ -33,7 +33,7 @@ Every number below lives in [`src/game/config.ts`](src/game/config.ts) — chang
 2. **Energy.** You get **2 energy on your first turn, +1 each turn, up to 7**. Unspent energy is lost. Card costs run 1–7; **Fireball is the only 7**.
 3. **Pick ONE unit** for the whole turn — your **base** or **one piece**:
    - **Base:** play **conjuration cards** to summon pieces on or next to your base — 🟡 as many as your energy pays for.
-   - **Piece:** it may **move once, play one card, and attack once, in any order** (e.g. attack, then move away).
+   - **Piece:** it may **move once, play cards, and attack once, in any order** (e.g. attack, then move away). Cards are limited only by energy.
    - Your other units do nothing this turn.
    - 🟡 You can switch your pick freely until the unit **does something**; then it is locked in.
    - 🟡 **On screen:** see [Playing on screen](#playing-on-screen).
@@ -162,7 +162,7 @@ See **[docs/CARD_AUDIT.md](docs/CARD_AUDIT.md)** for the card-by-card audit (tex
 ## Playing the prototype
 - One human vs AI by default; extra pass-and-play humans can share the device. With 2+ humans, a hand-off screen hides each hand until its owner clicks "Show my hand" (can be turned off at setup).
 - **Pick your unit:** click a glowing piece, or click **"🏰 Use my base"** (or your empty base hex). You can also just **click a card**: until your unit has acted, clicking a card your current pick can't use switches to the unit that can (if several pieces could, they light up so you can choose). Cards you can reach this way have a dashed outline. Your unit has a gold ring; the rest of your pieces fade once it has acted.
-- **Act:** with a piece picked, white dots are moves and red hexes are attacks. **Move, attack and play one card in any order**; the piece stays picked until you end the turn. The side panel lists what it can still do (● available, ✓ done, ○ not possible right now, with the reason). Cards it can't play are greyed; hover any card to see which pieces can play it and why it's blocked.
+- **Act:** with a piece picked, white dots are moves and red hexes are attacks. **Move, attack and play cards in any order** (as many cards as your energy pays for); the piece stays picked until you end the turn. The side panel lists what it can still do (● available, ✓ done, ○ not possible right now, with the reason). Cards it can't play are greyed; hover any card to see which pieces can play it and why it's blocked.
 - **Fireball:** hover to preview the blast. **Cordon of Arrows:** click enemy pieces to assign arrows (a counter shows on each), then **Fire!** (or Reset).
 - **Over the hand limit when you end your turn:** your hand turns red; click the card(s) to discard and the turn passes.
 - **Esc** cancels a card, **Enter** ends the turn.

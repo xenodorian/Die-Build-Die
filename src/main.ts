@@ -506,7 +506,7 @@ function statusLine(): { text: string; detail: string; tone: '' | 'go' | 'warn' 
     return { text: `Which piece should play <b>${card ? CARDS[card.id].name : 'it'}</b>? Click a highlighted piece.`, detail: 'Esc cancels.', tone: 'go' };
   }
   if (!s.active) {
-    return { text: '👉 Pick ONE unit for this turn: click a glowing piece, or 🏰 your base.', detail: `A piece can move, attack and play 1 card (any order). Your base summons new pieces. You can switch freely until the unit's first action; then it's locked in.${overNote}`, tone: 'go' };
+    return { text: '👉 Pick ONE unit for this turn: click a glowing piece, or 🏰 your base.', detail: `A piece can move, attack and play cards (any order, limited by energy). Your base summons new pieces. You can switch freely until the unit's first action; then it's locked in.${overNote}`, tone: 'go' };
   }
   if (s.active.kind === 'base') {
     const summons = me.hand.filter((c) => CARDS[c.id].cls === 'conjuration' && canPlayCard(s, s.current, c)).length;
@@ -556,7 +556,6 @@ function actionItems(): { title: string; items: ActItem[] } {
       : at.length ? { label: '⚔ Attack', sub: `${at.length} target${at.length > 1 ? 's' : ''} in range · d${PIECES[ap.kind].die}${ap.bonusDamage ? `+${ap.bonusDamage}` : ''}${ap.attacksLeft > 1 ? ` · ${ap.attacksLeft} attacks left` : ''}`, state: 'open', act: 'attack', hover: at.map(targetHex).filter((x): x is Hex => !!x), hoverKind: 'attack' }
       : { label: '⚔ Attack', sub: 'No enemy next to it', state: 'locked' });
     if (canRebuild(s, ap)) items.push({ label: '🔨 Rebuild base', sub: '1d8, uses move and attack', state: 'open', act: 'rebuild' });
-    if (s.cardsUsed >= RULES.cardsPerPieceTurn) items.push({ label: '✓ Card played', state: 'done' });
   }
   // 2. cards (playable now first, then switchable, then dimmed with reasons)
   const cardRows: ActItem[] = [];
@@ -564,7 +563,6 @@ function actionItems(): { title: string; items: ActItem[] } {
     const d = CARDS[c.id];
     const direct = directlyPlayable(s, c);
     const sw = !direct ? unitsThatCanPlay(s, c) : [];
-    if (ap && s.cardsUsed >= RULES.cardsPerPieceTurn && d.cls !== 'conjuration') return;
     const label = `${cardIcon(c)} ${d.name} <span class="cost-chip">${d.cost}⚡</span>`;
     if (direct) cardRows.push({ label, sub: d.cls === 'conjuration' ? 'Summon next to your base' : 'Play now', state: 'open', act: `card:${c.uid}`, hover: cardHoverHexes(s, c), hoverKind: 'card', key: i < 9 ? String(i + 1) : undefined });
     else if (sw.length) cardRows.push({ label, sub: `Switch to ${sw.length > 1 ? 'a piece that can play it' : sw[0].kind === 'base' ? 'your base' : `your ${PIECES[pieceById(s, sw[0].id)!.kind].name}`} and play`, state: 'open', act: `card:${c.uid}`, key: i < 9 ? String(i + 1) : undefined });
@@ -671,7 +669,7 @@ function hudMode(): string {
 const HELP_HTML = `<div class="helpcard" role="note"><div class="hh">How a turn works</div>
   <ol>
     <li><b>Pick ONE unit</b>: click a glowing piece, or your 🏰 base (or press <kbd>B</kbd>).</li>
-    <li><b>A piece</b> can <b>move</b> (outlined hexes), <b>attack</b> (red hexes) and play <b>1 card</b>, in any order. <b>The base</b> plays summon cards.</li>
+    <li><b>A piece</b> can <b>move</b> (outlined hexes), <b>attack</b> (red hexes) and play <b>cards</b> (as many as your energy pays for), in any order. <b>The base</b> plays summon cards.</li>
     <li>You can <b>switch</b> units freely until the first action. Then the others are 🔒 locked until next turn.</li>
     <li>The <b>Actions</b> list on the left always shows what you can do; hover an item to see it on the board.</li>
     <li><b>End turn</b> (<kbd>E</kbd>) always works. Over 7 cards, you are prompted to choose which cards to discard.</li>

@@ -307,7 +307,7 @@ export function cardBlockReason(s: GameState, owner: number, card: Card): string
     return `${cardUsersText(def)}. Select a piece first${energyNote}`;
   }
   if (!canClassBeUsedBy(def.cls, actor.kind)) return `Only a ${usersText} can play this, not a ${PIECES[actor.kind].name}${energyNote}`;
-  if (s.cardsUsed >= RULES.cardsPerPieceTurn) return `A piece may play ${RULES.cardsPerPieceTurn} card per turn`;
+  // No hard per-turn card count limit; energy (checked below) is the only restriction.
   if (me.energy < def.cost) return `Needs ${def.cost} energy, you have ${me.energy}`;
   if (def.id === 'fortify' && me.ruined) return 'Your base is in ruins: a King or Rook must rebuild it';
   if (def.id === 'fortify' && me.baseHp >= RULES.baseHp) return 'Your base is at full HP';

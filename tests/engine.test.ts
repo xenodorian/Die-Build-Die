@@ -447,7 +447,7 @@ describe('one unit per turn', () => {
     expect(legalMoves(s, starter)).toHaveLength(0); // the base was this turn's unit
   });
 
-  it('a piece plays one card, and only cards of its class', () => {
+  it('a piece plays cards of its class, limited only by energy', () => {
     const s = setup(2);
     s.pieces = [];
     const k = place(s, 0, 'knight', 0, -5);
@@ -462,7 +462,8 @@ describe('one unit per turn', () => {
     expect(canPlayCard(s, 0, me.hand[3])).toBe(false); // bishop card
     applyAction(s, { type: 'playCard', cardUid: 1 });
     expect(k.movesLeft).toBe(2);
-    expect(canPlayCard(s, 0, me.hand[0])).toBe(false); // one card per piece-turn
+    // still able to play another card of a legal class if energy remains
+    expect(canPlayCard(s, 0, me.hand[0])).toBe(true);
   });
 
   it('class users: Queen gets Bishop+Rook+Queen cards but not Knight cards; King gets everything', () => {
@@ -1072,7 +1073,7 @@ describe('card audit: every card does what its text says', () => {
       const np = pieceAt(s, spot)!;
       expect(np.kind).toBe(CARDS[id].summons);
       expect(np.hp).toBe(PIECES[np.kind].hp);
-      expect(np.movesLeft + np.attacksLeft).toBe(0); // summoning sickness
+      expect(np.movesLeft + np.attacksLeft).toBe(2); // can act the same turn
       expect(me.energy).toBe(7 - CARDS[id].cost);
     });
   }
