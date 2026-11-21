@@ -520,13 +520,21 @@ export function eliminate(s: GameState, events: GameEvent[], who: Player, why = 
 export const isBuilder = (p: Piece) => p.kind === 'king' || p.kind === 'rook';
 export const hasBuilder = (s: GameState, owner: number) => s.pieces.some((p) => p.owner === owner && isBuilder(p));
 
-/** A base hit 0 HP becomes a ruin. It is not a lose condition; it recovers 3d6 HP per turn. */
+/** A base hit 0 HP is destroyed. An enemy who destroys it captures its flag and wins. */
 function destroyBase(s: GameState, events: GameEvent[], who: Player) {
   who.ruined = true;
   who.baseHp = 0;
-  log(s, events, `🏚 ${who.name}'s base is destroyed. It will recover 3d6 HP each turn. Its flag can now be captured.`, who.index);
+  const attacker = currentPlayer(s);
+  if (attacker.index !== who.index && !who.flagCaptured) {
+    who.flagCaptured = true;
+    log(s, events, `🏚 ${who.name}'s base is destroyed! 🚩 ${attacker.name} captures the flag.`, attacker.index);
+    events.push({ type: 'baseRuined', player: who.index });
+    releasePrisoners(s, events, who);
+    declareWin(s, events, attacker.index, `destroyed ${who.name}'s base and captured their flag`);
+    return;
+  }
+  log(s, events, `🏚 ${who.name}'s base is destroyed. It will recover 3d6 HP each turn.`, who.index);
   events.push({ type: 'baseRuined', player: who.index });
-  // Prisoners held here are freed when the base falls.
   releasePrisoners(s, events, who);
 }
 

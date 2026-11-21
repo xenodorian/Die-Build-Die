@@ -613,7 +613,7 @@ function unitPanel(): string {
   const s = ui.state!;
   const me = currentPlayer(s);
   if (me.isBot) return '<div class="hint">Bot is playing…</div>';
-  if (me.ruined) return `<div class="hint warn">🏚 Your base is in ruins (${me.baseHp}/${RULES.baseHp}). It recovers 3d6 HP each turn${garrisonOf(ui.state!, me) ? ' (+ station bonus)' : ''}. A King or Rook on it can Rebuild for extra HP. Destroying a base is not a loss — but an enemy piece on it can take your flag.</div>`;
+  if (me.ruined) return `<div class="hint warn">🏚 Your base is in ruins (${me.baseHp}/${RULES.baseHp}). It recovers 3d6 HP each turn${garrisonOf(ui.state!, me) ? ' (+ station bonus)' : ''}. An enemy who destroys your base captures your flag and wins.</div>`;
   if (!s.active) return `<div class="hint">No unit selected. Click a glowing piece or your 🏰 base. Hover any piece for its stats.</div>`;
   if (s.active.kind === 'base') return `<div class="selinfo" style="--pc:${me.color}"><div class="big">🏰 Base</div><div>❤ ${me.baseHp}/${RULES.baseHp}. Play summon cards to put pieces on or next to it (as many as your energy pays for). Summoned pieces can move and attack this turn.</div></div>`;
   const sel = activePiece(s);

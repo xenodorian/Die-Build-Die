@@ -216,9 +216,8 @@ export const RULES = {
   garrisonAbsorbsBaseDamage: true,
 
   /**
-   * Each player has a flag on their base. An enemy must destroy the base first;
-   * then a piece that ends its move on the ruined base captures the flag and wins.
-   * Destroying a base is not a lose condition.
+   * Each player has a flag on their base. Destroying an enemy base captures its flag and wins.
+   * A ruined base recovers HP each turn, but the game is already over if an enemy destroyed it.
    */
   flagOnBases: true,
   /** Also win by being the last player with a base standing. Disabled: destroyed bases no longer eliminate. */
