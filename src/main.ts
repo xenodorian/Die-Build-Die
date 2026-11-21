@@ -38,12 +38,12 @@ interface Ui {
   helpOpen: boolean;
   /** Skull ids that just appeared (fade in on the next render). */
   freshCorpses: Set<number>;
-  /** Piece ids that were just summoned/raised (scale in on the next render). */
-  freshPieces: Set<number>;
+  /** When set, a discard prompt is open: player must select cards to discard before ending turn. */
+  discardPrompt: { selected: number[] } | null;
 }
 const ui: Ui = {
   state: null, selectedPiece: null, pendingCard: null, arrows: [], busy: false, hideHands: true, revealed: true, fastDice: false,
-  cardIntent: null, notice: null, undo: null, helpOpen: false, freshCorpses: new Set(), freshPieces: new Set(),
+  cardIntent: null, notice: null, undo: null, helpOpen: false, freshCorpses: new Set(), freshPieces: new Set(), discardPrompt: null,
 };
 const MOTION_KEY = 'dbd-reduced-motion';
 fx.setReducedMotion(localStorage.getItem(MOTION_KEY) !== null ? localStorage.getItem(MOTION_KEY) === '1' : matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -494,7 +494,7 @@ function statusLine(): { text: string; detail: string; tone: '' | 'go' | 'warn' 
   if (me.isBot) return { text: `🤖 ${escapeHtml(me.name)} is playing…`, detail: 'Wait for your turn. You can read the log on the right meanwhile.', tone: 'wait' };
   if (!ui.revealed) return { text: `Pass the device to ${escapeHtml(me.name)}.`, detail: '', tone: 'wait' };
   const over = endTurnDiscards(s);
-  const overNote = over.length ? ` Hand ${me.hand.length}/${RULES.handLimit}: End turn will discard ${over.map((c) => `<b>${CARDS[c.id].name}</b>`).join(', ')} (last), or ✕ a card yourself.` : '';
+  const overNote = over.length ? ` Hand ${me.hand.length}/${RULES.handLimit}: End turn will prompt you to choose ${over.length} card${over.length === 1 ? '' : 's'} to discard.` : '';
   if (ui.pendingCard !== null) {
     const card = me.hand.find((c) => c.uid === ui.pendingCard);
     const def = card ? CARDS[card.id] : undefined;
@@ -674,7 +674,7 @@ const HELP_HTML = `<div class="helpcard" role="note"><div class="hh">How a turn 
     <li><b>A piece</b> can <b>move</b> (outlined hexes), <b>attack</b> (red hexes) and play <b>1 card</b>, in any order. <b>The base</b> plays summon cards.</li>
     <li>You can <b>switch</b> units freely until the first action. Then the others are 🔒 locked until next turn.</li>
     <li>The <b>Actions</b> list on the left always shows what you can do; hover an item to see it on the board.</li>
-    <li><b>End turn</b> (<kbd>E</kbd>) always works. Over 7 cards, the last extras are discarded.</li>
+    <li><b>End turn</b> (<kbd>E</kbd>) always works. Over 7 cards, you are prompted to choose which cards to discard.</li>
   </ol>
   <div class="muted small">Keys: <kbd>1</kbd>–<kbd>9</kbd> cards · <kbd>B</kbd> base · <kbd>U</kbd> undo move · <kbd>Esc</kbd>/right-click cancel · <kbd>?</kbd> this help</div>
   <button class="btn primary" id="helpok">Got it</button></div>`;
@@ -708,7 +708,7 @@ function renderGame() {
       <a class="btn ghost" href="${RULES_URL}" target="_blank" rel="noopener">Rules</a>
       <button class="btn ghost" id="newgame">New game</button>
       ${!me.isBot && s.winner === null && ui.revealed && canBeUnit(s, { kind: 'base' }) && s.active?.kind !== 'base' ? `<button class="btn ghost" id="hudbase" title="Use your base this turn (play summon cards). Key: B">🏰 Base</button>` : ''}
-      <button class="btn primary" id="endturn" ${canEnd ? '' : 'disabled'} title="Always ends your turn. Key: E or Enter">End turn${over.length ? ` (discard ${over.length})` : ''} ⏎</button>
+      <button class="btn primary" id="endturn" ${canEnd ? '' : 'disabled'} title="Ends your turn. If over 7 cards you will be prompted to choose which to discard.">End turn${over.length ? ` (discard ${over.length})` : ''} ⏎</button>
     </header>
     <main class="main">
       ${renderActions()}
@@ -725,6 +725,7 @@ function renderGame() {
     ${!ui.revealed && s.winner === null ? `<div class="modal"><div class="modal-card" style="--pc:${me.color}">
       <div class="swatch big"></div><h2>${escapeHtml(me.name)}'s turn</h2><p>Pass the device to ${escapeHtml(me.name)}.</p>
       <button class="btn primary" id="reveal">Show my hand</button></div></div>` : ''}
+    ${ui.discardPrompt && s.winner === null ? renderDiscardPrompt() : ''}
     ${s.winner !== null ? `<div class="modal"><div class="modal-card" style="--pc:${s.players[s.winner].color}">
       ${(() => {
         const w = s.players[s.winner!];
@@ -754,9 +755,42 @@ function cancelTargeting(): boolean {
   return true;
 }
 
+function renderDiscardPrompt(): string {
+  const s = ui.state!;
+  const me = currentPlayer(s);
+  const over = me.hand.length - RULES.handLimit;
+  const selected = new Set(ui.discardPrompt!.selected);
+  const cards = me.hand.map((c) => {
+    const d = CARDS[c.id];
+    const on = selected.has(c.uid);
+    return `<button class="card cat-${d.category} cls-${d.cls} ${on ? 'selected' : ''}" data-discard-uid="${c.uid}" title="${escapeHtml(d.name)}">
+      <span class="name">${escapeHtml(d.name)}</span>
+      <span class="cost">${d.cost}</span>
+    </button>`;
+  }).join('');
+  const ready = selected.size === over;
+  return `<div class="modal"><div class="modal-card discard-prompt" style="--pc:${me.color}">
+    <h2>Discard ${over} card${over === 1 ? '' : 's'}</h2>
+    <p>Your hand is over the ${RULES.handLimit}-card limit. Select ${over} card${over === 1 ? '' : 's'} to discard, then confirm.</p>
+    <div class="discard-hand">${cards}</div>
+    <div class="row-btns">
+      <button class="btn primary" id="discard-confirm" ${ready ? '' : 'disabled'}>Confirm discard${ready ? '' : ` (${selected.size}/${over})`}</button>
+      <button class="btn ghost" id="discard-cancel">Cancel</button>
+    </div>
+  </div></div>`;
+}
+
 function endTurnNow() {
   if (ui.busy || !humanTurn()) return;
   cancelTargeting();
+  const s = ui.state!;
+  const me = currentPlayer(s);
+  const over = me.hand.length - RULES.handLimit;
+  if (over > 0) {
+    ui.discardPrompt = { selected: [] };
+    renderGame();
+    return;
+  }
   void doAction({ type: 'endTurn' });
 }
 
@@ -820,6 +854,28 @@ function bindGame() {
     }
   });
   app.querySelector('#endturn')?.addEventListener('click', endTurnNow);
+  app.querySelector('#discard-confirm')?.addEventListener('click', () => {
+    if (!ui.discardPrompt) return;
+    const selected = ui.discardPrompt.selected;
+    ui.discardPrompt = null;
+    void doAction({ type: 'endTurn', discard: selected });
+  });
+  app.querySelector('#discard-cancel')?.addEventListener('click', () => {
+    ui.discardPrompt = null;
+    renderGame();
+  });
+  app.querySelectorAll<HTMLElement>('[data-discard-uid]').forEach((el) => {
+    el.addEventListener('click', () => {
+      if (!ui.discardPrompt) return;
+      const uid = Number(el.dataset.discardUid);
+      const sel = ui.discardPrompt.selected;
+      const idx = sel.indexOf(uid);
+      const over = currentPlayer(ui.state!).hand.length - RULES.handLimit;
+      if (idx >= 0) sel.splice(idx, 1);
+      else if (sel.length < over) sel.push(uid);
+      renderGame();
+    });
+  });
   app.querySelector('#help')?.addEventListener('click', () => { ui.helpOpen = !ui.helpOpen; renderGame(); });
   app.querySelector('#helpok')?.addEventListener('click', () => { ui.helpOpen = false; localStorage.setItem(HELP_KEY, '1'); renderGame(); });
   app.querySelector('#motion')?.addEventListener('click', () => {

@@ -27,7 +27,7 @@ Every number below lives in [`src/game/config.ts`](src/game/config.ts) — chang
 
 ## Your turn
 1. **Draw.** On your **first turn you draw 7 cards**; every later turn you **draw 1**.
-   - **Hand limit 7.** 🟡 The limit is checked **when you end your turn**, and **End turn always ends the turn**: if you hold more than 7, your **last** (newest) extra cards are discarded automatically and listed in the log. A big hand never stops you from acting, and playing a card first may mean nothing is discarded.
+   - **Hand limit 7.** 🟡 The limit is checked **when you end your turn**, and **End turn always ends the turn**: if you hold more than 7, you are prompted to choose which extra cards to discard. A big hand never stops you from acting, and playing a card first may mean nothing is discarded.
    - 🟡 You may discard any card yourself at any time on your turn (the ✕ on a card), e.g. to keep an old card and drop a newer one. The cards End turn would discard are marked *"discarded at end of turn"* in your hand.
    - 🟡 When your deck is empty, your discard pile is shuffled into a new deck.
 2. **Energy.** You get **2 energy on your first turn, +1 each turn, up to 7**. Unspent energy is lost. Card costs run 1–7; **Fireball is the only 7**.
