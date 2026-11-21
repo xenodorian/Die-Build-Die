@@ -503,7 +503,8 @@ function tryPickUp(s: GameState, events: GameEvent[], p: Piece) {
   declareWin(s, events, p.owner, `captured ${enemy.name}'s flag after destroying their base`);
 }
 
-function eliminate(s: GameState, events: GameEvent[], who: Player, why = 'base is destroyed') {
+// eliminate is kept for future knockout conditions; currently unused.
+export function eliminate(s: GameState, events: GameEvent[], who: Player, why = 'base is destroyed') {
   who.alive = false;
   who.baseHp = 0;
   for (const p of s.pieces.filter((x) => x.owner === who.index)) removePiece(s, events, p);

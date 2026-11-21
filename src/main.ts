@@ -997,8 +997,11 @@ function showTip(h: Hex, e: MouseEvent) {
     if (ap && legalAttacks(s, ap).some((a) => a.kind === 'base' && a.owner === base.index)) lines.push(`⚔ Attack: d${PIECES[ap.kind].die}${ap.bonusDamage ? `+${ap.bonusDamage}` : ''} → ${1 + ap.bonusDamage}–${PIECES[ap.kind].die + ap.bonusDamage} damage`);
     if (base.index === s.current && !currentPlayer(s).isBot) lines.push(canBeUnit(s, { kind: 'base' }) ? 'Click to use your base (summon)' : '<span class="tw">Locked this turn: you are using a piece</span>');
   } else if (ap && legalMoves(s, ap).some((m) => hexEq(m, h))) {
-    lines.push(`➜ Move your ${PIECES[ap.kind].name} here${flagHex(s) && hexEq(flagHex(s)!, h) ? ' and grab the 🚩 flag' : ''}`);
-  } else if (flagHex(s) && hexEq(flagHex(s)!, h)) lines.push('🚩 The flag. Land a piece here to pick it up.');
+    const onEnemyRuin = s.players.some((pl) => pl.index !== ap.owner && pl.ruined && !pl.flagCaptured && hexEq(pl.base, h));
+    lines.push(`➜ Move your ${PIECES[ap.kind].name} here${onEnemyRuin ? ' and capture the 🚩 flag' : ''}`);
+  } else if (s.players.some((pl) => pl.ruined && !pl.flagCaptured && hexEq(pl.base, h))) {
+    lines.push('🚩 Flag on a ruined base. Land a piece here to capture it.');
+  }
   if (!lines.length) return hideTip();
   t.innerHTML = lines.map((l) => `<div>${l}</div>`).join('');
   t.classList.add('show');
