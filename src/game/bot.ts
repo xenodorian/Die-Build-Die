@@ -83,42 +83,25 @@ export function evaluate(s: GameState, me: number): number {
   const share = 1 / Math.max(1, enemies.length);
   let v = 0;
 
-  // Flag race
-  const carrier = flagCarrier(s);
-  if (carrier) {
-    const home = s.players[carrier.owner].base;
-    const d = turnsTo(carrier.kind, carrier.pos, home) * 1.5;
-    // A carrier heading for a ruined base can't score yet: worth much less.
-    const val = (400 + (20 - d) * 35) * (s.players[carrier.owner].ruined ? 0.3 : 1);
-    const r = rel(carrier.owner);
-    v += r === 'self' ? val : r === 'ally' ? val * 0.4 : -val * (dogpileAI ? 1.5 : 1);
-    if (r === 'self') {
-      // carriers want escorts and fear nearby enemies
-      const threats = s.pieces.filter((p) => rel(p.owner) === 'enemy' && hexDistance(p.pos, carrier.pos) <= 3).length;
-      v -= threats * 25;
-      // Clear the way home: our own pieces on the base hex block the carrier.
-      const blocker = s.pieces.find((p) => p.owner === me && p.id !== carrier.id && hexEq(p.pos, home));
-      // (Constant while we carry, so it never discourages the carrier from approaching.)
-      if (blocker) v -= 150;
-      v -= s.pieces.filter((p) => p.owner === me && p.id !== carrier.id && hexDistance(p.pos, home) === 1).length * 40;
-    } else if (r === 'enemy') {
-      // chase the enemy carrier
-      const mine = s.pieces.filter((p) => p.owner === me);
-      if (mine.length) v -= Math.min(...mine.map((p) => hexDistance(p.pos, carrier.pos) / 2)) * (dogpileAI ? 30 : 20);
-    }
-  } else {
-    const f = flagHex(s)!;
-    const turns = (pred: (o: number) => boolean) => {
+  // Flag race: destroy an enemy base, then step on it to capture the flag.
+  for (const e of enemies) {
+    if (e.flagCaptured) continue;
+    const dist = (pred: (o: number) => boolean) => {
       const ps = s.pieces.filter((p) => pred(p.owner));
-      return ps.length ? Math.min(...ps.map((p) => turnsTo(p.kind, p.pos, f))) : 15;
+      return ps.length ? Math.min(...ps.map((p) => turnsTo(p.kind, p.pos, e.base))) : 15;
     };
-    const mine = turns((o) => o === me);
-    const ours = turns(team);
-    // Nudge the whole army forward a little.
-    for (const p of s.pieces) if (p.owner === me) v -= Math.min(turnsTo(p.kind, p.pos, f), 8) * (dogpileAI ? 1 : 2);
-    const theirs = enemies.length ? Math.min(...enemies.map((e) => turns((o) => o === e.index)), 15) : 15;
-    v += (theirs - ours) * 30 - mine * (dogpileAI ? 4 : 10);
+    const mine = dist((o) => o === me);
+    if (e.ruined) {
+      // Flag is capturable: get a piece onto the ruined base.
+      v += (15 - mine) * 40;
+    } else {
+      // Need to destroy the base first.
+      v += (RULES.baseHp - e.baseHp) * 3;
+      v -= mine * 5;
+    }
   }
+  // Protect our own flag.
+  if (meP.ruined && !meP.flagCaptured) v -= 200;
 
   // Material
   for (const p of s.pieces) {
@@ -170,8 +153,7 @@ function threatPenalty(s: GameState, me: number): number {
     return k / die;
   };
   const lossOf = (p: Piece, pk: number, dmg: number) => {
-    const carrying = s.flag.carrier === p.id;
-    return pk * (pieceWorth(p) + (carrying ? 600 : 0)) + (1 - pk) * (Math.min(dmg, p.hp) * 2 + (carrying ? Math.min(dmg, p.hp) * 15 : 0));
+    return pk * pieceWorth(p) + (1 - pk) * Math.min(dmg, p.hp) * 2;
   };
   for (const owner of enemyOwners) {
     const opp = s.players[owner];

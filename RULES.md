@@ -157,7 +157,7 @@ See **[docs/CARD_AUDIT.md](docs/CARD_AUDIT.md)** for the card-by-card audit (tex
 - **Carrying:** the carrier moves and fights normally (it has a red ring and a 🚩).
 - **Dropping:** if the carrier is destroyed, the flag drops on the hex where it died; anyone can pick it up. Recall makes the carrier drop it where it stood.
 - **Win:** move your carrier **onto your own base hex**. 🟡 Your base hex must be empty, so a piece on it has to step aside to let the carrier in.
-- **Second way to win — last active base standing:** the game ends as soon as only **one player has an active (not ruined) base**, and that player wins, even if someone else is still rebuilding. 🟡 In a 2-player game, ruins therefore never come into play: destroying the other base wins. 🟡 If one blast leaves nobody with an active base, the player whose turn it is wins.
+- **Win:** destroy an enemy base, then land a piece on the ruined base to capture their flag. Destroying a base is **not** a lose condition.
 
 ## Playing the prototype
 - One human vs AI by default; extra pass-and-play humans can share the device. With 2+ humans, a hand-off screen hides each hand until its owner clicks "Show my hand" (can be turned off at setup).

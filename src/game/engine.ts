@@ -28,7 +28,7 @@ export function newGame(setups: PlayerSetup[], seed = Date.now(), mode: GameMode
     active: null,
     turnActed: false,
     cardsUsed: 0,
-    flag: { pos: { ...RULES.flagStart }, carrier: null },
+    flag: { pos: null, carrier: null },
     corpses: [],
     winner: null,
     winReason: null,
@@ -53,6 +53,7 @@ export function newGame(setups: PlayerSetup[], seed = Date.now(), mode: GameMode
       turnsTaken: 0,
       prisoners: [],
       ruined: false,
+      flagCaptured: false,
     };
     player.deck = shuffle(state, buildDeckList().map((id) => ({ uid: state.nextId++, id })));
     state.players.push(player);
@@ -189,14 +190,14 @@ function baseTargetable(_s: GameState, player: Player): boolean {
   return player.alive && !player.ruined;
 }
 
-/** Where the flag is right now (the carrier's hex, or where it lies). */
+/** Where a flag is right now. With flags-on-bases, each uncaptured flag sits on its owner's base. */
 export function flagHex(s: GameState): Hex | null {
-  if (s.flag.carrier !== null) return pieceById(s, s.flag.carrier)?.pos ?? null;
-  return s.flag.pos;
+  // Legacy single-flag helper: return the first uncaptured enemy flag position, or null.
+  const uncaptured = s.players.find((p) => p.alive && !p.flagCaptured);
+  return uncaptured ? uncaptured.base : null;
 }
 
-export const flagCarrier = (s: GameState): Piece | undefined =>
-  s.flag.carrier === null ? undefined : pieceById(s, s.flag.carrier);
+export const flagCarrier = (_s: GameState): Piece | undefined => undefined;
 
 /** Hexes a move passes over between `from` and `to` (excluding `from`, including `to`). Jumps only touch `to`. */
 export function movePath(from: Hex, to: Hex): Hex[] {
@@ -433,6 +434,23 @@ function startTurn(s: GameState, events: GameEvent[]) {
   s.active = null;
   s.turnActed = false;
   s.cardsUsed = 0;
+  // Ruined bases recover 3d6 HP per turn. A stationed piece adds extra on top.
+  if (me.ruined) {
+    const dice = RULES.ruinedBaseRegenDice;
+    const regen = roll(s, events, 'Base regen', dice, 0, me.index);
+    const garrison = garrisonOf(s, me);
+    const bonus = garrison ? RULES.stationedRegenBonus : 0;
+    me.baseHp = Math.min(RULES.baseHp, me.baseHp + regen + bonus);
+    if (bonus) log(s, events, `  ${PIECES[garrison!.kind].name} stationed on the base adds ${bonus} HP.`, me.index);
+    if (me.baseHp >= RULES.baseHp) {
+      me.ruined = false;
+      me.baseHp = RULES.baseHp;
+      log(s, events, `  🏰 ${me.name}'s base is restored (${me.baseHp}/${RULES.baseHp}) and active again!`, me.index);
+      events.push({ type: 'baseRebuilt', player: me.index });
+    } else {
+      log(s, events, `  🏚 Base recovers to ${me.baseHp}/${RULES.baseHp}.`, me.index);
+    }
+  }
   drawCards(s, events, me, me.turnsTaken === 1 ? RULES.openingHand : RULES.drawPerTurn);
   me.energy = Math.min(RULES.energyStart + (me.turnsTaken - 1) * RULES.energyPerTurn, RULES.energyMax);
   for (const p of s.pieces) {
@@ -442,13 +460,9 @@ function startTurn(s: GameState, events: GameEvent[]) {
   }
 }
 
-/** Remove a piece from the board; a carried flag drops on its hex. */
+/** Remove a piece from the board. */
 function removePiece(s: GameState, events: GameEvent[], p: Piece) {
   s.pieces = s.pieces.filter((x) => x !== p);
-  if (s.flag.carrier === p.id) {
-    s.flag = { pos: p.pos, carrier: null };
-    log(s, events, `  🚩 The flag drops at (${p.pos.q},${p.pos.r}).`);
-  }
 }
 
 /** Shackles capture: the victim leaves the board (not killed) and is held at the captor's base. */
@@ -480,20 +494,13 @@ function releasePrisoners(s: GameState, events: GameEvent[], captor: Player) {
   captor.prisoners = [];
 }
 
-/** Give the flag to `p` if it ended its move on the flag's hex. */
+/** Give the flag to `p` if it ended its move on an enemy's ruined base (the only way to capture a flag). */
 function tryPickUp(s: GameState, events: GameEvent[], p: Piece) {
-  if (s.flag.carrier !== null || !s.flag.pos) return;
-  if (!hexEq(p.pos, s.flag.pos)) return;
-  s.flag = { pos: null, carrier: p.id };
-  log(s, events, `🚩 ${s.players[p.owner].name}'s ${PIECES[p.kind].name} grabs the flag!`, p.owner);
-  checkFlagWin(s, events, p);
-}
-
-function checkFlagWin(s: GameState, events: GameEvent[], p: Piece) {
-  // 🟡 A ruined base can't receive the flag until it is rebuilt.
-  if (s.flag.carrier === p.id && hexEq(p.pos, s.players[p.owner].base) && !s.players[p.owner].ruined) {
-    declareWin(s, events, p.owner, `captured the flag with a ${PIECES[p.kind].name}`);
-  }
+  const enemy = s.players.find((pl) => pl.index !== p.owner && pl.alive && !pl.flagCaptured && pl.ruined && hexEq(pl.base, p.pos));
+  if (!enemy) return;
+  enemy.flagCaptured = true;
+  log(s, events, `🚩 ${s.players[p.owner].name}'s ${PIECES[p.kind].name} captures the flag from ${enemy.name}'s ruined base!`, p.owner);
+  declareWin(s, events, p.owner, `captured ${enemy.name}'s flag after destroying their base`);
 }
 
 function eliminate(s: GameState, events: GameEvent[], who: Player, why = 'base is destroyed') {
@@ -512,45 +519,32 @@ function eliminate(s: GameState, events: GameEvent[], who: Player, why = 'base i
 export const isBuilder = (p: Piece) => p.kind === 'king' || p.kind === 'rook';
 export const hasBuilder = (s: GameState, owner: number) => s.pieces.some((p) => p.owner === owner && isBuilder(p));
 
-/** A base hit 0 HP: out, unless a King or Rook is on the field to rebuild it (then it's a ruin). */
+/** A base hit 0 HP becomes a ruin. It is not a lose condition; it recovers 3d6 HP per turn. */
 function destroyBase(s: GameState, events: GameEvent[], who: Player) {
-  if (!hasBuilder(s, who.index)) {
-    eliminate(s, events, who);
-    return;
-  }
   who.ruined = true;
   who.baseHp = 0;
-  log(s, events, `🏚 ${who.name}'s base is destroyed, but a King or Rook can rebuild it. ${who.name} stays in the game.`, who.index);
+  log(s, events, `🏚 ${who.name}'s base is destroyed. It will recover 3d6 HP each turn. Its flag can now be captured.`, who.index);
   events.push({ type: 'baseRuined', player: who.index });
-  checkGameEnd(s, events);
-  if (s.winner === null) releasePrisoners(s, events, who);
+  // Prisoners held here are freed when the base falls.
+  releasePrisoners(s, events, who);
 }
 
-/** Win by elimination: only one player still has an ACTIVE (not ruined) base. */
+/** Win checks that are no longer based on destroyed bases. */
 function checkGameEnd(s: GameState, events: GameEvent[]) {
   if (s.winner !== null) return;
+  // Destroyed bases are not a lose condition. Victory is by capturing an enemy flag.
+  // Dogpile still ends if every human is eliminated by other means.
   const alive = s.players.filter((p) => p.alive);
-  const active = alive.filter((p) => !p.ruined);
-  if (RULES.lastBaseStandingWins && active.length === 1) {
-    declareWin(s, events, active[0].index, alive.length === 1 ? 'last base standing' : 'last active base standing');
-  } else if (RULES.lastBaseStandingWins && active.length === 0) {
-    // 🟡 Nobody has an active base left (e.g. one Fireball took out the last two): the player whose turn it is wins.
+  if (s.mode === 'dogpile' && !alive.some((p) => !p.isBot)) {
     const cur = s.players[s.current];
-    declareWin(s, events, (cur.alive ? cur : alive[0] ?? cur).index, 'last one standing among the ruins');
-  } else if (s.mode === 'dogpile' && !alive.some((p) => !p.isBot)) {
-    // Dogpile: once every human is out, the AIs win together.
-    const cur = s.players[s.current];
-    const ai = cur.alive && cur.isBot ? cur : alive.find((p) => p.isBot)!;
-    declareWin(s, events, ai.index, 'the AIs knocked out every human (Dogpile)');
+    const ai = cur.alive && cur.isBot ? cur : alive.find((p) => p.isBot);
+    if (ai) declareWin(s, events, ai.index, 'the AIs knocked out every human (Dogpile)');
   }
 }
 
-/** A ruined player whose last King/Rook is gone is out. */
-function checkRuins(s: GameState, events: GameEvent[]) {
-  for (const pl of s.players) {
-    if (s.winner !== null) return;
-    if (pl.alive && pl.ruined && !hasBuilder(s, pl.index)) eliminate(s, events, pl, 'base lies in ruins with no King or Rook left to rebuild it');
-  }
+/** Ruined bases no longer eliminate their owner. */
+function checkRuins(_s: GameState, _events: GameEvent[]) {
+  // Destroyed bases recover; losing builders no longer knocks a player out.
 }
 
 export function canRebuild(s: GameState, p: Piece): boolean {
@@ -898,10 +892,6 @@ function resolveCard(s: GameState, events: GameEvent[], me: Player, def: CardDef
       // Next to the base first; the base hex itself only if every neighbour is taken.
       const spots = summonHexes(s, me.index);
       const spot = spots.find((h) => hexDistance(h, me.base) === 1) ?? spots[0];
-      if (s.flag.carrier === p.id) {
-        s.flag = { pos: p.pos, carrier: null };
-        log(s, events, `  🚩 The flag is dropped at (${p.pos.q},${p.pos.r}).`);
-      }
       if (spot) p.pos = spot;
       p.hp = Math.min(p.maxHp, p.hp + def.amount!);
       log(s, events, `  ${targetName(s, target!)} returns home and heals to ${p.hp}/${p.maxHp}.`);

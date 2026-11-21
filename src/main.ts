@@ -2,7 +2,7 @@ import './ui/style.css';
 import { ARMORS, CARDS, PIECES, PLAYER_COLORS, PLAYER_NAMES, RULES, canClassBeUsedBy, type CardCategory } from './game/config';
 import {
   CENTER, activePiece, applyAction, areaVictims, baseAt, canBeUnit, canPlayCard, cardBlockReason, cardTargets, cardUsersText, currentPlayer,
-  endTurnDiscards, flagCarrier, flagHex, legalAttacks, legalMoves, newGame, pieceAt,
+  endTurnDiscards, flagCarrier, flagHex, garrisonOf, legalAttacks, legalMoves, newGame, pieceAt,
   pieceById, sameTarget,
   canRebuild,
 } from './game/engine';
@@ -137,7 +137,7 @@ function renderSetup() {
   app.innerHTML = `
   <div class="setup">
     <h1 class="logo">Die <span>Build</span> Die</h1>
-    <p class="tagline">Chess pieces. A deck of cards. A fistful of dice. Grab the flag from the centre and carry it home.</p>
+    <p class="tagline">Chess pieces. A deck of cards. A fistful of dice. Destroy the enemy base and capture their flag.</p>
     <div class="setup-card">
       <label class="field">Your name
         <input id="pname" placeholder="${PLAYER_NAMES[RULES.seatCorners[2][0]]}" value="${escapeHtml(c.name)}" maxlength="14"/>
@@ -337,8 +337,10 @@ function renderBoard(hl: HL): string {
   }
 
   let overlays = '';
-  if (s.flag.pos) {
-    const f = px(s.flag.pos);
+  // Flags sit on each player's base until captured.
+  for (const p of s.players) {
+    if (!p.alive || p.flagCaptured) continue;
+    const f = px(p.base);
     overlays += `<text class="flag-icon" x="${f.x + 2}" y="${f.y + 8}">🚩</text>`;
   }
   // Bases
@@ -418,7 +420,7 @@ function renderBoard(hl: HL): string {
       ${pips}
       ${benched ? `<text class="lock" x="${x + 12}" y="${y - 8}">${sick ? '💤' : '🔒'}</text>` : ''}
       ${arrowsHere ? `<circle cx="${x - 12}" cy="${y - 11}" r="7" class="arrow-badge"/><text class="arrow-count" x="${x - 12}" y="${y - 8}">${arrowsHere}</text>` : ''}
-      ${s.flag.carrier === p.id ? `<circle cx="${x}" cy="${y}" r="${big ? 19 : 17.5}" class="carrier-ring"/><text class="carrier-flag" x="${x + 13}" y="${y - 7}">🚩</text>` : ''}
+      ${''}
       </g>
     </g>`;
   }
@@ -478,14 +480,9 @@ function renderCard(card: Card, index: number, playable: boolean, pending: boole
 
 function flagStatus(): string {
   const s = ui.state!;
-  const c = flagCarrier(s);
-  if (c) {
-    const o = s.players[c.owner];
-    return `🚩 <b style="color:${o.color}">${escapeHtml(o.name)}</b>'s ${PIECES[c.kind].name} carries the flag. ${hexDistance(c.pos, o.base)} hexes from home.`;
-  }
-  const f = flagHex(s);
-  if (!f) return '🚩 The flag is missing.';
-  return hexEq(f, CENTER) ? '🚩 The flag waits on the centre hex. Grab it and bring it to your base!' : `🚩 The flag lies on the ground at (${f?.q},${f?.r}). Anyone can grab it.`;
+  const uncaptured = s.players.filter((p) => p.alive && !p.flagCaptured);
+  if (!uncaptured.length) return '🚩 All flags have been captured.';
+  return uncaptured.map((p) => `🚩 <b style="color:${p.color}">${escapeHtml(p.name)}</b>'s flag is on their ${p.ruined ? 'ruined' : ''} base`).join('<br>');
 }
 
 /** One clear sentence (plus a detail line) about what you can do right now. Never empty. */
@@ -616,14 +613,14 @@ function unitPanel(): string {
   const s = ui.state!;
   const me = currentPlayer(s);
   if (me.isBot) return '<div class="hint">Bot is playing…</div>';
-  if (me.ruined) return `<div class="hint warn">🏚 Your base is in ruins (${me.baseHp}/${RULES.baseHp} rebuilt). Stand a King or Rook on it and press Rebuild (1d8 per turn). Lose every King and Rook and you're out.</div>`;
+  if (me.ruined) return `<div class="hint warn">🏚 Your base is in ruins (${me.baseHp}/${RULES.baseHp}). It recovers 3d6 HP each turn${garrisonOf(ui.state!, me) ? ' (+ station bonus)' : ''}. A King or Rook on it can Rebuild for extra HP. Destroying a base is not a loss — but an enemy piece on it can take your flag.</div>`;
   if (!s.active) return `<div class="hint">No unit selected. Click a glowing piece or your 🏰 base. Hover any piece for its stats.</div>`;
   if (s.active.kind === 'base') return `<div class="selinfo" style="--pc:${me.color}"><div class="big">🏰 Base</div><div>❤ ${me.baseHp}/${RULES.baseHp}. Play summon cards to put pieces on or next to it (as many as your energy pays for). Summoned pieces can move and attack this turn.</div></div>`;
   const sel = activePiece(s);
   if (!sel) return `<div class="hint">Your unit fell this turn. End your turn.</div>`;
   const st = PIECES[sel.kind];
   return `<div class="selinfo" style="--pc:${me.color}">
-      <div class="big">${st.glyph} ${st.name}${s.flag.carrier === sel.id ? ' 🚩' : ''}</div>
+      <div class="big">${st.glyph} ${st.name}</div>
       <div>❤ ${sel.hp}/${sel.maxHp}${sel.shield ? ` · 🔵 shield ${sel.shield}` : ''} · 🎲 d${st.die}${sel.bonusDamage ? ` +${sel.bonusDamage}` : ''} · moves ${sel.movesLeft} · attacks ${sel.attacksLeft}</div>
       ${sel.armor ? `<div>${ARMORS[sel.armor].icon} ${ARMORS[sel.armor].name}: ${ARMORS[sel.armor].pool ? `soaks ${sel.armorPool ?? 0} more damage` : `−${ARMORS[sel.armor].reduce} on every hit`}</div>` : ''}
       ${sel.shackles ? `<div>⛓ Shackles: move onto an enemy piece with less than ${sel.hp} HP to capture it (Shift+click to attack instead)</div>` : ''}
@@ -988,7 +985,7 @@ function showTip(h: Hex, e: MouseEvent) {
   if (p) {
     const o = s.players[p.owner];
     const st = PIECES[p.kind];
-    lines.push(`<b style="color:${o.color}">${escapeHtml(o.name)}</b> ${st.glyph} <b>${st.name}</b>${s.flag.carrier === p.id ? ' 🚩' : ''}`);
+    lines.push(`<b style="color:${o.color}">${escapeHtml(o.name)}</b> ${st.glyph} <b>${st.name}</b>`);
     lines.push(`❤ ${p.hp}/${p.maxHp}${p.shield ? ` · 🔵 ${p.shield}` : ''} · 🎲 d${st.die}${p.bonusDamage ? `+${p.bonusDamage}` : ''}${p.armor ? ` · ${ARMORS[p.armor].icon} ${ARMORS[p.armor].name}` : ''}${p.shackles ? ' · ⛓' : ''}`);
     if (p.owner === s.current && !currentPlayer(s).isBot) {
       const why = pieceLockReason(s, p);
@@ -1172,8 +1169,8 @@ function snap(s: GameState): Snap {
   return {
     pieces: new Map(s.pieces.map((p) => [p.id, { pos: { ...p.pos }, hp: p.hp, shield: p.shield, armor: p.armor, bonus: p.bonusDamage, kind: p.kind, owner: p.owner }])),
     baseHp: s.players.map((p) => p.baseHp),
-    carrier: s.flag.carrier,
-    flagPos: s.flag.pos ? { ...s.flag.pos } : null,
+    carrier: null,
+    flagPos: null,
     corpseIds: new Set(s.corpses.map((c) => c.id)),
     current: s.current,
     hand: s.players[s.current].hand.length,
@@ -1251,17 +1248,7 @@ function effects(before: Snap, s: GameState, action: Action, events: GameEvent[]
     if (d < 0) { fx.ring(pl.base, S, 'hit'); fx.floatText(pl.base, S, `🏰 −${-d}`, 'dmg', 150); }
     if (d > 0) { fx.ring(pl.base, S, 'heal'); fx.floatText(pl.base, S, `🏰 +${d}`, 'heal', 150); }
   });
-  // Flag news
-  if (s.flag.carrier !== before.carrier) {
-    const c = s.flag.carrier !== null ? pieceById(s, s.flag.carrier) : undefined;
-    if (c) {
-      fx.ring(c.pos, S, 'flag');
-      fx.banner(`🚩 ${escapeHtml(s.players[c.owner].name)}'s ${PIECES[c.kind].name} grabs the flag!`, s.players[c.owner].color, 'flag');
-    } else if (s.flag.pos) {
-      fx.ring(s.flag.pos, S, 'flag');
-      fx.banner(`🚩 The flag drops at (${s.flag.pos.q},${s.flag.pos.r})!`, '#ff5a5a', 'flag');
-    }
-  }
+  // Flag capture is announced by the engine win event.
   // End-of-turn discards are announced (they are also in the log)
   if (action.type === 'endTurn') {
     const line = s.log.slice().reverse().find((l) => l.startsWith(`${who.name} is over the`));
@@ -1304,7 +1291,7 @@ async function doAction(action: Action, undoLabel?: string) {
     return;
   }
   // Undo is offered only for a plain move: no dice, no capture, no win, flag unchanged.
-  const plain = backup && !events.some((e) => e.type === 'roll' || e.type === 'captured' || e.type === 'win') && s.flag.carrier === before.carrier;
+  const plain = backup && !events.some((e) => e.type === 'roll' || e.type === 'captured' || e.type === 'win');
   ui.undo = plain ? { snap: backup!, label: undoLabel! } : null;
   ui.pendingCard = null;
   ui.arrows = [];

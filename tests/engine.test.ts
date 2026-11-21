@@ -232,16 +232,16 @@ describe('combat', () => {
     expect(guard.hp < 4 || !s.pieces.includes(guard)).toBe(true);
   });
 
-  it('destroying an unguarded base eliminates its owner', () => {
+  it('destroying an unguarded base ruins it but does not eliminate the owner', () => {
     const s = setup(2);
     const base = s.players[1].base;
     s.pieces = [];
     const atk = place(s, 0, 'king', base.q + 1, base.r - 1);
     s.players[1].baseHp = 1;
     applyAction(s, { type: 'attack', pieceId: atk.id, target: { kind: 'base', owner: 1 } });
-    expect(s.players[1].alive).toBe(false);
-    expect(s.winner).toBe(0);
-    expect(s.winReason).toBe('last base standing');
+    expect(s.players[1].alive).toBe(true);
+    expect(s.players[1].ruined).toBe(true);
+    expect(s.winner).toBe(null);
   });
 });
 
@@ -336,74 +336,26 @@ describe('cards and winning', () => {
 });
 
 describe('capture the flag', () => {
-  it('starts on the centre with nobody carrying it', () => {
-    const s = setup(4);
-    expect(flagHex(s)).toEqual(CENTER);
-    expect(flagCarrier(s)).toBeUndefined();
+  it('flags start on each player base', () => {
+    const s = setup(2);
+    expect(s.players[0].flagCaptured).toBe(false);
+    expect(s.players[1].flagCaptured).toBe(false);
   });
 
-  it('a piece that steps on the flag picks it up and carries it', () => {
+  it('destroying a base then landing a piece on it captures the flag and wins', () => {
     const s = setup(2);
     s.pieces = [];
-    const p = place(s, 0, 'pawn', 1, 0);
-    applyAction(s, { type: 'move', pieceId: p.id, to: CENTER });
-    expect(flagCarrier(s)?.id).toBe(p.id);
+    const enemyBase = s.players[1].base;
+    s.players[1].baseHp = 1;
+    const atk = place(s, 0, 'king', enemyBase.q + 1, enemyBase.r - 1);
+    applyAction(s, { type: 'attack', pieceId: atk.id, target: { kind: 'base', owner: 1 } });
+    expect(s.players[1].ruined).toBe(true);
     expect(s.winner).toBe(null);
-  });
-
-  it('sliding over the flag does NOT pick it up; you must land on it', () => {
-    const s = setup(2);
-    s.pieces = [];
-    const r = place(s, 0, 'rook', -2, 0);
-    applyAction(s, { type: 'move', pieceId: r.id, to: hex(1, 0) });
-    expect(flagCarrier(s)).toBeUndefined();
-    expect(flagHex(s)).toEqual(CENTER);
-  });
-
-  it('a Knight landing on the flag grabs it', () => {
-    const s = setup(2);
-    s.pieces = [];
-    const k = place(s, 0, 'knight', -1, -2);
-    applyAction(s, { type: 'move', pieceId: k.id, to: hex(0, 0) });
-    expect(flagCarrier(s)?.id).toBe(k.id);
-  });
-
-  it('the flag drops where its carrier dies', () => {
-    const s = setup(2);
-    s.pieces = [];
-    const carrier = place(s, 1, 'pawn', 3, 3);
-    s.flag = { pos: null, carrier: carrier.id };
-    carrier.hp = 1;
-    const k = place(s, 0, 'king', 3, 2);
-    applyAction(s, { type: 'attack', pieceId: k.id, target: { kind: 'piece', id: carrier.id } });
-    expect(flagCarrier(s)).toBeUndefined();
-    expect(flagHex(s)).toEqual(hex(3, 3));
-  });
-
-  it('bringing the flag onto your own base wins', () => {
-    const s = setup(2);
-    s.pieces = [];
-    const base = s.players[0].base;
-    const p = place(s, 0, 'pawn', base.q + 1, base.r);
-    expect(hexDistance(p.pos, base)).toBe(1);
-    s.flag = { pos: null, carrier: p.id };
-    applyAction(s, { type: 'move', pieceId: p.id, to: base });
+    // Move onto the ruined base to capture the flag
+    applyAction(s, { type: 'move', pieceId: atk.id, to: enemyBase });
+    expect(s.players[1].flagCaptured).toBe(true);
     expect(s.winner).toBe(0);
-    expect(s.winReason).toMatch(/captured the flag/);
-  });
-
-  it('Recall makes the carrier drop the flag', () => {
-    const s = setup(2);
-    s.pieces = [];
-    const p = place(s, 0, 'bishop', 0, -3);
-    s.flag = { pos: null, carrier: p.id };
-    s.players[0].hand = [{ uid: 555, id: 'recall' }];
-    s.players[0].energy = 1;
-    applyAction(s, { type: 'selectUnit', unit: { kind: 'piece', id: p.id } });
-    applyAction(s, { type: 'playCard', cardUid: 555 });
-    expect(flagCarrier(s)).toBeUndefined();
-    expect(flagHex(s)).toEqual(hex(0, -3));
-    expect(s.winner).toBe(null);
+    expect(s.winReason).toMatch(/captured/);
   });
 });
 

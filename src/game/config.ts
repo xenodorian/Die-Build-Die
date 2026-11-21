@@ -216,13 +216,17 @@ export const RULES = {
   garrisonAbsorbsBaseDamage: true,
 
   /**
-   * Capture the flag: the flag starts on the centre hex. A piece that ENDS a move on it picks it up
-   * (passing over it does nothing). Bring the carrier onto your own base hex to win. If the carrier
-   * dies, the flag drops on its hex. Recall makes the carrier drop the flag where it stood.
+   * Each player has a flag on their base. An enemy must destroy the base first;
+   * then a piece that ends its move on the ruined base captures the flag and wins.
+   * Destroying a base is not a lose condition.
    */
-  flagStart: { q: 0, r: 0 },
-  /** Also win by being the last player with a base standing. */
-  lastBaseStandingWins: true,
+  flagOnBases: true,
+  /** Also win by being the last player with a base standing. Disabled: destroyed bases no longer eliminate. */
+  lastBaseStandingWins: false,
+  /** Ruined bases recover this many dice of HP at the start of their owner's turn. */
+  ruinedBaseRegenDice: [6, 6, 6] as Die[],
+  /** Extra HP a stationed piece (garrison) adds on top of the regen, per turn. */
+  stationedRegenBonus: 4,
 };
 
 export const PLAYER_COLORS = ['#e8505b', '#3d8bfd', '#3fbf6f', '#f2c14e', '#a46bf5', '#f08a3c'];

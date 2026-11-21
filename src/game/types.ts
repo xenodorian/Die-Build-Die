@@ -42,8 +42,10 @@ export interface Player {
   turnsTaken: number;
   /** Enemy pieces captured with Shackles, held at this player's base. */
   prisoners: Piece[];
-  /** Base destroyed but the player still has a King or Rook: baseHp counts rebuild progress. */
+  /** Base destroyed but still recovers. baseHp counts rebuild progress. */
   ruined: boolean;
+  /** This player's flag has been captured by an enemy. */
+  flagCaptured: boolean;
 }
 
 export type Target =
